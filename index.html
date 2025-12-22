@@ -13,8 +13,24 @@
         .footer-info { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid #eee; font-size: 0.85rem; color: #6c757d; }
         .footer-section-title { font-weight: bold; margin-bottom: 0.5rem; color: #343a40; display: flex; align-items: center; }
         
-        .drop-zone { border: 2px dashed #dee2e6; border-radius: 8px; padding: 20px; text-align: center; background: #f8f9fa; transition: all 0.2s; }
-        .drop-zone:hover { border-color: #0d6efd; background: #f0f7ff; }
+        /* ドラッグ&ドロップエリアの装飾 */
+        .drop-zone { 
+            border: 2px dashed #dee2e6; 
+            border-radius: 8px; 
+            padding: 40px 20px; 
+            text-align: center; 
+            background: #f8f9fa; 
+            transition: all 0.2s; 
+            cursor: pointer;
+            position: relative;
+        }
+        /* ドラッグ中の見た目変化 */
+        .drop-zone.dragover { 
+            border-color: #0d6efd; 
+            background: #e7f1ff; 
+            transform: scale(1.02);
+        }
+        .drop-zone p { pointer-events: none; } /* 文字が邪魔しないように */
 
         .spec-info { background-color: #e9ecef; border-left: 4px solid #6c757d; padding: 10px 15px; font-size: 0.85rem; color: #495057; margin-bottom: 15px; border-radius: 0 4px 4px 0; }
         .spec-info ul { margin: 0; padding-left: 1.2rem; }
@@ -38,18 +54,23 @@
     
     <div class="mb-4">
         <label class="form-label fw-bold">1. テロップ画像選択 (PNG/JPG)</label>
-        <div class="drop-zone">
-            <input type="file" class="form-control" id="telop-uploader" accept="image/*" multiple>
-            <div class="form-text mt-2">※ファイル名順（昇順）で結合されます。</div>
+        
+        <div class="drop-zone" id="drop-zone">
+            <p class="fs-5 text-muted mb-1">ここに画像をドラッグ＆ドロップ</p>
+            <p class="small text-muted mb-3">またはクリックしてファイルを選択</p>
+            <input type="file" class="form-control visually-hidden" id="telop-uploader" accept="image/*" multiple>
+            <button class="btn btn-outline-primary btn-sm" onclick="document.getElementById('telop-uploader').click()">ファイルを選択</button>
+            <div id="file-count" class="mt-3 fw-bold text-primary"></div>
         </div>
+        <div class="form-text mt-2 text-end">※ファイル名順（昇順）で結合されます。</div>
     </div>
 
     <div class="spec-info">
-        <strong>⚙️ 出力設定 (AIチェック最適化済):</strong>
+        <strong>⚙️ 出力設定 (安心のシングルスレッドモード):</strong>
         <ul class="mt-1">
             <li>フレームレート：1fps (1枚につき1秒表示)</li>
-            <li>解像度：元画像のサイズを維持</li>
-            <li>画質：CRF28 (文字認識に十分な画質を確保しつつ軽量化)</li>
+            <li>解像度：<strong>1920x1080 固定 (黒帯付き)</strong></li>
+            <li>画質：最高画質 (OCR精度優先)</li>
         </ul>
     </div>
 
@@ -85,6 +106,41 @@
 <script>
     const { createFFmpeg, fetchFile } = FFmpeg;
     let ffmpeg = null;
+    let selectedFiles = []; // ファイル保持用
+
+    // ドラッグ＆ドロップ処理
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('telop-uploader');
+    const fileCount = document.getElementById('file-count');
+
+    // ファイルリスト更新処理
+    const updateFileList = (files) => {
+        if (!files || files.length === 0) return;
+        // FileListを配列に変換して追加（重複チェックは簡易的に省略）
+        const newFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
+        selectedFiles = newFiles; // 今回は上書きモード（追加モードにしたい場合はconcat）
+        fileCount.innerText = `✅ ${selectedFiles.length}個のファイルを選択中`;
+    };
+
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('dragover');
+    });
+
+    dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('dragover');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        updateFileList(e.dataTransfer.files);
+    });
+
+    fileInput.addEventListener('change', (e) => {
+        updateFileList(e.target.files);
+    });
+
 
     // 進捗バー更新ヘルパー
     const updateProgress = (percent, text) => {
@@ -99,6 +155,8 @@
         if (ffmpeg === null) {
             ffmpeg = createFFmpeg({ 
                 log: true,
+                // シングルスレッド版 (重要)
+                corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
                 progress: ({ ratio }) => {
                     if(ratio > 0 && ratio <= 1) {
                         const p = 50 + Math.round(ratio * 50);
@@ -113,12 +171,11 @@
     };
 
     document.getElementById('telop-convert-btn').addEventListener('click', async () => {
-        const fileInput = document.getElementById('telop-uploader');
         const resultArea = document.getElementById('telop-result-area');
         const btn = document.getElementById('telop-convert-btn');
 
-        if (fileInput.files.length === 0) { 
-            alert("画像を選択してください"); 
+        if (selectedFiles.length === 0) { 
+            alert("画像をドラッグ＆ドロップするか、選択してください"); 
             return; 
         }
         
@@ -129,13 +186,17 @@
         
         try {
             updateProgress(5, 'エンジン読込中(初回は数分かかります)...');
-            
             await new Promise(r => setTimeout(r, 100));
             await ensureFFmpegLoaded();
             
-            const files = Array.from(fileInput.files).sort((a, b) => 
+            // ファイル名順不同対策
+            const files = selectedFiles.sort((a, b) => 
                 a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
             );
+
+            // 修正③：出力解像度をFHD固定
+            const CANVAS_W = 1920;
+            const CANVAS_H = 1080;
 
             for (let i = 0; i < files.length; i++) {
                 const p = 10 + Math.round((i / files.length) * 40);
@@ -150,29 +211,42 @@
 
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
-                canvas.width = imgBitmap.width; 
-                canvas.height = imgBitmap.height;
+                canvas.width = CANVAS_W; 
+                canvas.height = CANVAS_H;
                 
-                ctx.fillStyle = '#888888'; 
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.drawImage(imgBitmap, 0, 0);
+                // 黒背景 (レターボックス)
+                ctx.fillStyle = '#000000'; 
+                ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+                // 画像のアスペクト比を維持して中央配置
+                const scale = Math.min(CANVAS_W / imgBitmap.width, CANVAS_H / imgBitmap.height);
+                const drawW = imgBitmap.width * scale;
+                const drawH = imgBitmap.height * scale;
+                const offsetX = (CANVAS_W - drawW) / 2;
+                const offsetY = (CANVAS_H - drawH) / 2;
+
+                ctx.drawImage(imgBitmap, offsetX, offsetY, drawW, drawH);
                 
-                const fontSize = Math.max(24, Math.floor(canvas.height * 0.05));
+                // 修正①：メモリ解放 (重要)
+                imgBitmap.close();
+
+                // ヘッダー情報
+                const fontSize = 40;
                 ctx.font = `bold ${fontSize}px Arial, sans-serif`; 
                 ctx.textBaseline = 'top';
-                const headerHeight = Math.floor(fontSize * 1.5);
-                
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'; 
-                ctx.fillRect(0, 0, canvas.width, headerHeight);
+                ctx.fillRect(0, 0, CANVAS_W, 60);
                 ctx.fillStyle = '#ffffff'; 
-                ctx.fillText(`File: ${files[i].name}`, 10, (headerHeight - fontSize) / 2);
+                ctx.fillText(`File: ${files[i].name}`, 20, 10);
                 
-                const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.95));
+                // 修正④：最高画質(1.0)で保存
+                const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 1.0));
                 ffmpeg.FS('writeFile', `img${String(i).padStart(3, '0')}.jpg`, await fetchFile(blob));
             }
 
             updateProgress(50, 'エンコード準備中...');
             
+            // 1fps (1枚1秒) で動画化
             await ffmpeg.run(
                 '-framerate', '1', 
                 '-i', 'img%03d.jpg', 
@@ -203,14 +277,20 @@
                 </div>
             `;
             
+            // お掃除
             for (let i = 0; i < files.length; i++) { 
                 try { ffmpeg.FS('unlink', `img${String(i).padStart(3, '0')}.jpg`); } catch(e){} 
             }
             try { ffmpeg.FS('unlink', 'output_check.mp4'); } catch(e){}
             
+            // 修正②：FFmpegインスタンスはあえて維持する
+            // 理由: Single-Thread版はロードに時間がかかるため、
+            // 毎回 exit() すると再実行時に30秒待つことになるため。
+            // FS('unlink') でゴミ掃除を徹底することで代用。
+
         } catch(e) { 
             console.error(e); 
-            resultArea.innerHTML = `<div class="alert alert-danger">エラーが発生しました:<br>${e.message}</div>`; 
+            resultArea.innerHTML = `<div class="alert alert-danger">エラーが発生しました:<br>${e.message}</div>`;
         }
         
         btn.disabled = false; 
