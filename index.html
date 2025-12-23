@@ -47,11 +47,11 @@
     </div>
 
     <div class="spec-info">
-        <strong>⚙️ 出力設定 (exit(0)対策済):</strong>
+        <strong>⚙️ 出力設定 (完了版):</strong>
         <ul class="mt-1">
             <li>フレームレート：1fps (1枚につき1秒表示)</li>
-            <li>解像度：<strong>1920x1080 固定 (黒帯付き)</strong></li>
-            <li>動作モード：シングルスレッド＋例外無視処理</li>
+            <li>解像度：<strong>1920x1080 固定 (グレー帯)</strong></li>
+            <li>動作モード：シングルスレッド (安定動作版)</li>
         </ul>
     </div>
 
@@ -82,7 +82,6 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
-
 <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.0/dist/ffmpeg.min.js"></script>
 
 <script>
@@ -118,7 +117,7 @@
         if (ffmpeg === null) {
             ffmpeg = createFFmpeg({ 
                 log: true,
-                // キャッシュバスターとmainName指定
+                // キャッシュ対策付きで安定版シングルスレッドコアを読み込む
                 corePath: `https://unpkg.com/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js?v=${Date.now()}`,
                 mainName: 'main' 
             });
@@ -146,7 +145,6 @@
             const files = selectedFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
             const CANVAS_W = 1920; const CANVAS_H = 1080;
 
-            // ファイルシステムのお掃除
             try { ffmpeg.FS('unlink', 'output_check.mp4'); } catch(e){}
 
             for (let i = 0; i < files.length; i++) {
@@ -160,7 +158,9 @@
                 const ctx = canvas.getContext('2d');
                 canvas.width = CANVAS_W; canvas.height = CANVAS_H;
                 
-                ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+                // ★修正箇所：背景を黒(#000000)からグレー(#808080)に変更
+                // これにより、黒文字のテロップでもはっきりと視認できるようになります。
+                ctx.fillStyle = '#808080'; ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
                 const scale = Math.min(CANVAS_W / imgBitmap.width, CANVAS_H / imgBitmap.height);
                 const drawW = imgBitmap.width * scale; const drawH = imgBitmap.height * scale;
@@ -171,7 +171,8 @@
 
                 const fontSize = 40;
                 ctx.font = `bold ${fontSize}px Arial, sans-serif`; ctx.textBaseline = 'top';
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'; ctx.fillRect(0, 0, CANVAS_W, 60);
+                // 上部のファイル名表示バーの背景も少し明るくして見やすく
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.5)'; ctx.fillRect(0, 0, CANVAS_W, 60);
                 ctx.fillStyle = '#ffffff'; ctx.fillText(`File: ${files[i].name}`, 20, 10);
                 
                 const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 1.0));
@@ -180,28 +181,24 @@
 
             updateProgress(50, 'エンコード中...');
             
-            // ★重要：ここをtry-catchで囲み、「exit(0)」エラーを握りつぶす
+            // exit(0)エラーを許容して実行
             try {
-                // -start_number 0 を追加して、000から読むことを明示
                 await ffmpeg.run('-start_number', '0', '-framerate', '1', '-i', 'img%03d.jpg', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '28', 'output_check.mp4');
             } catch (ffmpegError) {
-                // エラーメッセージに "exit(0)" が含まれていたら、それは「成功」とみなす
                 if (ffmpegError && ffmpegError.message && ffmpegError.message.includes('exit(0)')) {
                     console.log('FFmpeg exited with 0 (Clean exit). Continuing as success.');
                 } else {
-                    // それ以外の本当のエラーは外に投げる
                     throw ffmpegError;
                 }
             }
 
             updateProgress(100, '完了');
             
-            // ファイルが生成されているか確認
             let data;
             try {
                 data = ffmpeg.FS('readFile', 'output_check.mp4');
             } catch(e) {
-                throw new Error("動画ファイルの生成に失敗しました（ファイルが見つかりません）。");
+                throw new Error("動画ファイルの生成に失敗しました。");
             }
 
             const blob = new Blob([data.buffer], { type: 'video/mp4' }); 
@@ -214,7 +211,6 @@
                 <div class="card border-info text-start"><div class="card-header bg-info text-white fw-bold">🚀 次のステップ: AIで校正チェック</div><div class="card-body bg-light"><p class="small text-muted mb-2">保存した動画をGeminiにアップロードして、誤字脱字や固有名詞のチェックを行いましょう。</p><a href="https://gemini.google.com/gem/1dN_UBLXFguu4dfD4ZUWab1FV2mc5Jupv?usp=sharing" target="_blank" class="btn btn-outline-primary w-100 fw-bold mb-3">🤖 校閲Geminiを開く</a></div></div>
             `;
             
-            // 画像のお掃除
             for (let i = 0; i < files.length; i++) { try { ffmpeg.FS('unlink', `img${String(i).padStart(3, '0')}.jpg`); } catch(e){} }
             
         } catch(e) { 
