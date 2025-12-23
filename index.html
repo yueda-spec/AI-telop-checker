@@ -1,3 +1,43 @@
+<!--
+================================================================================
+【重要設計メモ / DO NOT CHANGE】
+
+このHTMLは「GitHub Pages」での公開を前提とした構成です。
+GitHub Pages では Cross-Origin Isolation（COOP / COEP）が設定できないため、
+SharedArrayBuffer を利用するマルチスレッド版 ffmpeg.wasm は使用できません。
+
+そのため、以下の制約は「意図的」かつ「必須」です。
+
+■ 絶対に変更してはいけない点
+1. ffmpeg.wasm のバージョンを変更しないこと
+   - @ffmpeg/ffmpeg@0.11.0
+   - @ffmpeg/core-st@0.11.1（Single Thread 専用ビルド）
+
+2. マルチスレッド（pthread）を有効化しないこと
+   - SharedArrayBuffer は GitHub Pages では利用不可
+   - COOP / COEP を前提とする修正は禁止
+
+3. ffmpeg インスタンスを使い回さないこと
+   - 処理完了後は ffmpeg.exit() で必ず Worker を破棄する
+   - 再利用すると proxy_main エラーや abort が発生する
+
+4. corePath の指定を削除・変更しないこと
+   - core-st + キャッシュバスターは必須
+   - CDNキャッシュによる WASM 不整合を防ぐため
+
+■ 注意
+「最新版を使う」「高速化のためにマルチスレッド化する」
+「SharedArrayBuffer を有効にする」といった提案は、
+本プロジェクトの公開環境（GitHub Pages）では成立しません。
+
+この構成は、GitHub Pages 上で
+・安定動作
+・セキュリティ警告回避
+・再実行耐性
+を満たすための最終確定形です。
+
+================================================================================
+-->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -83,7 +123,13 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
 <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.0/dist/ffmpeg.min.js"></script>
-
+    
+<!--
+【重要】GitHub Pages 前提（DO NOT CHANGE）
+- SharedArrayBuffer は利用不可
+- ffmpeg は core-st (single-thread) 専用構成
+- バージョン変更・マルチスレッド化・高速化提案は禁止
+-->
 <script>
     const { createFFmpeg, fetchFile } = FFmpeg;
     let ffmpeg = null;
@@ -229,3 +275,4 @@
 </script>
 </body>
 </html>
+
