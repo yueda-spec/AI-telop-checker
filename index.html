@@ -47,11 +47,11 @@
     </div>
 
     <div class="spec-info">
-        <strong>⚙️ 出力設定 (GitHub Pages 完全対応版):</strong>
+        <strong>⚙️ 出力設定 (GitHub Pages 完全対応・修正版):</strong>
         <ul class="mt-1">
             <li>フレームレート：1fps (1枚につき1秒表示)</li>
             <li>解像度：<strong>1920x1080 固定 (黒帯付き)</strong></li>
-            <li>動作モード：シングルスレッド (v0.10.1 + core-st v0.11.1)</li>
+            <li>動作モード：シングルスレッド (mainNameオプション適用済)</li>
         </ul>
     </div>
 
@@ -116,13 +116,12 @@
 
     const ensureFFmpegLoaded = async () => {
         if (ffmpeg === null) {
-            // ★修正2: シングルスレッド動作の「鉄板」構成
-            // Wrapper: v0.10.1 (上のscriptタグ)
-            // Core: @ffmpeg/core-st@0.11.1 (下のcorePath)
-            // この組み合わせは proxy_main エラーを回避しつつ、SharedArrayBufferなしで動作します。
+            // ★重要修正: mainName: 'main' を追加
+            // これにより、存在しない proxy_main を探しに行くエラーを確実に防ぎます
             ffmpeg = createFFmpeg({ 
                 log: true,
-                corePath: 'https://unpkg.com/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js'
+                corePath: 'https://unpkg.com/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js',
+                mainName: 'main'  // ★これがproxy_mainエラーの特効薬です
             });
             await ffmpeg.load();
         } else if (!ffmpeg.isLoaded()) {
@@ -142,7 +141,7 @@
         
         try {
             updateProgress(5, 'エンジン読込中(初回は数分かかります)...');
-            await new Promise(r => setTimeout(r, 100)); // UI更新用ウェイト
+            await new Promise(r => setTimeout(r, 100));
             
             await ensureFFmpegLoaded();
             
@@ -200,7 +199,7 @@
         } catch(e) { 
             console.error(e); 
             let msg = e.message;
-            if(msg.includes('proxy_main')) msg += '<br>※エンジンのバージョン不整合です。ページをリロードしてキャッシュをクリアしてください。';
+            if(msg.includes('proxy_main')) msg += '<br>※エンジンの設定エラーです。';
             resultArea.innerHTML = `<div class="alert alert-danger">エラーが発生しました:<br>${msg}</div>`;
         }
         
