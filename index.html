@@ -9,27 +9,11 @@
     <style>
         body { background-color: #f0f2f5; padding-top: 2rem; padding-bottom: 2rem; font-family: "Helvetica Neue", Arial, sans-serif; }
         .main-container { max-width: 800px; margin: 0 auto; background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.12); }
-        
         .footer-info { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid #eee; font-size: 0.85rem; color: #6c757d; }
         .footer-section-title { font-weight: bold; margin-bottom: 0.5rem; color: #343a40; display: flex; align-items: center; }
-        
-        .drop-zone { 
-            border: 2px dashed #dee2e6; 
-            border-radius: 8px; 
-            padding: 40px 20px; 
-            text-align: center; 
-            background: #f8f9fa; 
-            transition: all 0.2s; 
-            cursor: pointer;
-            position: relative;
-        }
-        .drop-zone.dragover { 
-            border-color: #0d6efd; 
-            background: #e7f1ff; 
-            transform: scale(1.02);
-        }
+        .drop-zone { border: 2px dashed #dee2e6; border-radius: 8px; padding: 40px 20px; text-align: center; background: #f8f9fa; transition: all 0.2s; cursor: pointer; position: relative; }
+        .drop-zone.dragover { border-color: #0d6efd; background: #e7f1ff; transform: scale(1.02); }
         .drop-zone p { pointer-events: none; }
-
         .spec-info { background-color: #e9ecef; border-left: 4px solid #6c757d; padding: 10px 15px; font-size: 0.85rem; color: #495057; margin-bottom: 15px; border-radius: 0 4px 4px 0; }
         .spec-info ul { margin: 0; padding-left: 1.2rem; }
     </style>
@@ -52,7 +36,6 @@
     
     <div class="mb-4">
         <label class="form-label fw-bold">1. テロップ画像選択 (PNG/JPG)</label>
-        
         <div class="drop-zone" id="drop-zone">
             <p class="fs-5 text-muted mb-1">ここに画像をドラッグ＆ドロップ</p>
             <p class="small text-muted mb-3">またはクリックしてファイルを選択</p>
@@ -64,11 +47,11 @@
     </div>
 
     <div class="spec-info">
-        <strong>⚙️ 出力設定 (安心のシングルスレッドモード):</strong>
+        <strong>⚙️ 出力設定 (安定動作 v0.10版):</strong>
         <ul class="mt-1">
             <li>フレームレート：1fps (1枚につき1秒表示)</li>
             <li>解像度：<strong>1920x1080 固定 (黒帯付き)</strong></li>
-            <li>画質：最高画質 (OCR精度優先)</li>
+            <li>動作モード：Single-Thread (GitHub Pages対応)</li>
         </ul>
     </div>
 
@@ -92,7 +75,7 @@
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-shield-lock-fill me-2" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8 0c-.69 0-1.843.265-2.928.56-1.11.3-2.229.655-2.887.87a1.54 1.54 0 0 0-1.044 1.262c-.596 4.477.787 7.795 2.465 9.99a11.777 11.777 0 0 0 2.517 2.453c.386.273.744.482 1.048.625.28.132.581.24.829.24s.548-.108.829-.24a7.159 7.159 0 0 0 1.048-.625 11.775 11.775 0 0 0 2.517-2.453c1.678-2.195 3.061-5.513 2.465-9.99a1.541 1.541 0 0 0-1.044-1.263 62.467 62.467 0 0 0-2.887-.87C9.843.266 8.69 0 8 0zm0 5a1.5 1.5 0 0 1 .5 2.915l.385 1.99a.5.5 0 0 1-.491.595h-.788a.5.5 0 0 1-.49-.595l.384-1.99A1.5 1.5 0 0 1 8 5z"/></svg>
                     セキュリティとプライバシー
                 </div>
-                <p class="mb-0">本ツールは、すべての変換処理を<strong>ブラウザ内（ローカル環境）</strong>で完結して行います。画像データが外部のサーバーに送信・保存されることは一切ありません。</p>
+                <p class="mb-0">本ツールは、すべての変換処理を<strong>ブラウザ内（ローカル環境）</strong>で完結して行います。</p>
             </div>
         </div>
     </div>
@@ -100,7 +83,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
 
-<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.10.1/dist/ffmpeg.min.js"></script>
 
 <script>
     const { createFFmpeg, fetchFile } = FFmpeg;
@@ -133,12 +116,12 @@
 
     const ensureFFmpegLoaded = async () => {
         if (ffmpeg === null) {
-            // ★修正点2：ここが決定的な違いです！
-            // core-st (Single Threaded) 版のURLを明示的に指定します。
-            // これにより SharedArrayBuffer がない環境でも強制的に動きます。
+            // ★修正点2：v0.10.0 のコアを指定
+            // v0.10系はデフォルトでシングルスレッド動作のような挙動をするため、
+            // 余計なオプション（mainNameやcore-st）は不要で、シンプルに動きます。
             ffmpeg = createFFmpeg({ 
                 log: true,
-                corePath: 'https://unpkg.com/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js',
+                corePath: 'https://unpkg.com/@ffmpeg/core@0.10.0/dist/ffmpeg-core.js'
             });
             await ffmpeg.load();
         } else if (!ffmpeg.isLoaded()) {
@@ -182,19 +165,18 @@
                 const offsetX = (CANVAS_W - drawW) / 2; const offsetY = (CANVAS_H - drawH) / 2;
 
                 ctx.drawImage(imgBitmap, offsetX, offsetY, drawW, drawH);
-                imgBitmap.close(); // メモリ解放
+                imgBitmap.close(); 
 
                 const fontSize = 40;
                 ctx.font = `bold ${fontSize}px Arial, sans-serif`; ctx.textBaseline = 'top';
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'; ctx.fillRect(0, 0, CANVAS_W, 60);
                 ctx.fillStyle = '#ffffff'; ctx.fillText(`File: ${files[i].name}`, 20, 10);
                 
-                // 画質1.0 (最高)
                 const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 1.0));
                 ffmpeg.FS('writeFile', `img${String(i).padStart(3, '0')}.jpg`, await fetchFile(blob));
             }
 
-            updateProgress(50, 'エンコード中 (少々お待ちください)...');
+            updateProgress(50, 'エンコード中...');
             
             await ffmpeg.run('-framerate', '1', '-i', 'img%03d.jpg', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '28', 'output_check.mp4');
 
