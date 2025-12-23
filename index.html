@@ -47,11 +47,11 @@
     </div>
 
     <div class="spec-info">
-        <strong>⚙️ 出力設定 (GitHub Pages対応版):</strong>
+        <strong>⚙️ 出力設定 (GitHub Pages 完全対応版):</strong>
         <ul class="mt-1">
             <li>フレームレート：1fps (1枚につき1秒表示)</li>
             <li>解像度：<strong>1920x1080 固定 (黒帯付き)</strong></li>
-            <li>動作モード：完全シングルスレッド (SharedArrayBuffer回避済)</li>
+            <li>動作モード：シングルスレッド (v0.10.1 + core-st v0.11.1)</li>
         </ul>
     </div>
 
@@ -83,7 +83,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
 
-<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.0/dist/ffmpeg.min.js"></script>
+<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.10.1/dist/ffmpeg.min.js"></script>
 
 <script>
     const { createFFmpeg, fetchFile } = FFmpeg;
@@ -116,8 +116,10 @@
 
     const ensureFFmpegLoaded = async () => {
         if (ffmpeg === null) {
-            // ★修正2: SharedArrayBufferエラーを回避する完全なシングルスレッド設定
-            // @ffmpeg/core ではなく、 @ffmpeg/core-st (Single Thread) を指定する必要があります。
+            // ★修正2: シングルスレッド動作の「鉄板」構成
+            // Wrapper: v0.10.1 (上のscriptタグ)
+            // Core: @ffmpeg/core-st@0.11.1 (下のcorePath)
+            // この組み合わせは proxy_main エラーを回避しつつ、SharedArrayBufferなしで動作します。
             ffmpeg = createFFmpeg({ 
                 log: true,
                 corePath: 'https://unpkg.com/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js'
@@ -139,11 +141,8 @@
         updateProgress(0, '準備中...');
         
         try {
-            // 初回ロードは少し時間がかかるのでメッセージを表示
             updateProgress(5, 'エンジン読込中(初回は数分かかります)...');
-            
-            // UI描画更新のための待機
-            await new Promise(r => setTimeout(r, 100));
+            await new Promise(r => setTimeout(r, 100)); // UI更新用ウェイト
             
             await ensureFFmpegLoaded();
             
@@ -151,7 +150,6 @@
             const CANVAS_W = 1920; const CANVAS_H = 1080;
 
             for (let i = 0; i < files.length; i++) {
-                // 進捗表示の計算修正
                 const p = 10 + Math.round((i / files.length) * 40);
                 updateProgress(p, `画像加工中 ${i+1}/${files.length}`);
                 
@@ -196,17 +194,13 @@
                 <div class="card border-info text-start"><div class="card-header bg-info text-white fw-bold">🚀 次のステップ: AIで校正チェック</div><div class="card-body bg-light"><p class="small text-muted mb-2">保存した動画をGeminiにアップロードして、誤字脱字や固有名詞のチェックを行いましょう。</p><a href="https://gemini.google.com/gem/1dN_UBLXFguu4dfD4ZUWab1FV2mc5Jupv?usp=sharing" target="_blank" class="btn btn-outline-primary w-100 fw-bold mb-3">🤖 校閲Geminiを開く</a></div></div>
             `;
             
-            // クリーンアップ
             for (let i = 0; i < files.length; i++) { try { ffmpeg.FS('unlink', `img${String(i).padStart(3, '0')}.jpg`); } catch(e){} }
             try { ffmpeg.FS('unlink', 'output_check.mp4'); } catch(e){}
             
         } catch(e) { 
             console.error(e); 
-            // エラー表示をユーザーフレンドリーに
             let msg = e.message;
-            if(msg.includes('SharedArrayBuffer')) {
-                msg += '<br><strong>※ブラウザのセキュリティ制限です。シングルスレッド版の読み込みに失敗しました。</strong>';
-            }
+            if(msg.includes('proxy_main')) msg += '<br>※エンジンのバージョン不整合です。ページをリロードしてキャッシュをクリアしてください。';
             resultArea.innerHTML = `<div class="alert alert-danger">エラーが発生しました:<br>${msg}</div>`;
         }
         
