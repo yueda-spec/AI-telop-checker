@@ -134,14 +134,15 @@
                 files.sort((a, b) => collator.compare(a.name, b.name));
 
                 // PDFドキュメント作成
+                // 初期化時にデフォルトのA4ページ(ページ1)が作成されます
                 const pdf = new jsPDF({
                     orientation: 'landscape',
                     unit: 'px',
                     compress: true
                 });
                 
-                // 最初のページを削除（後で追加するため）
-                pdf.deletePage(1);
+                // 【修正点】ここで deletePage(1) をするとエラーになる可能性があるため削除しました。
+                // 代わりに、最後に不要な1ページ目を削除します。
 
                 for (let i = 0; i < files.length; i++) {
                     const file = files[i];
@@ -154,15 +155,18 @@
                     // Canvasで画像を合成
                     const mergedImage = drawToCanvas(img, file.name);
 
-                    // PDFに追加
-                    const pdfWidth = pdf.internal.pageSize.getWidth();
-                    const pdfHeight = pdf.internal.pageSize.getHeight();
-                    
-                    // ページサイズを画像サイズに合わせる
-                    pdf.addPage([mergedImage.width, mergedImage.height], mergedImage.width > mergedImage.height ? 'landscape' : 'portrait');
+                    // 新しいページを追加（サイズは画像に合わせる）
+                    // ※ addPageすると、その新しいページがアクティブになります
+                    const orientation = mergedImage.width > mergedImage.height ? 'landscape' : 'portrait';
+                    pdf.addPage([mergedImage.width, mergedImage.height], orientation);
                     
                     // 画像をPDFページ全面に配置
                     pdf.addImage(mergedImage.data, 'JPEG', 0, 0, mergedImage.width, mergedImage.height);
+                }
+
+                // 【修正点】全ての画像を追加し終わった後、一番最初の空白ページ（index 1）を削除
+                if (pdf.getNumberOfPages() > 1) {
+                    pdf.deletePage(1);
                 }
 
                 // 保存
@@ -228,7 +232,7 @@
             ctx.drawImage(img, 0, headerHeight);
 
             return {
-                // 修正箇所: AI認識精度向上のため品質を0.85から0.95へ変更
+                // AI認識精度向上のため品質を0.95に設定
                 data: canvas.toDataURL('image/jpeg', 0.95), 
                 width: canvas.width,
                 height: canvas.height
