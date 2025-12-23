@@ -47,11 +47,11 @@
     </div>
 
     <div class="spec-info">
-        <strong>⚙️ 出力設定 (WebWorker版):</strong>
+        <strong>⚙️ 出力設定 (連続変換対応版):</strong>
         <ul class="mt-1">
             <li>フレームレート：1fps (1枚につき1秒表示)</li>
             <li>解像度：<strong>1920x1080 固定 (グレー背景 #808080)</strong></li>
-            <li>動作モード：<strong>Web Worker処理 (画面フリーズなし)</strong></li>
+            <li>動作モード：シングルスレッド＋自動リセット機能</li>
         </ul>
     </div>
 
@@ -82,71 +82,12 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
-
-<script id="worker-code" type="javascript/worker">
-    // Web Worker内でFFmpegを読み込む
-    self.importScripts('https://unpkg.com/@ffmpeg/ffmpeg@0.11.0/dist/ffmpeg.min.js');
-
-    const { createFFmpeg, fetchFile } = FFmpeg;
-    let ffmpeg = null;
-
-    self.onmessage = async function(e) {
-        const { type, fileDataList } = e.data;
-
-        if (type === 'run') {
-            try {
-                // キャッシュバスター付きでコアを読み込む
-                if (!ffmpeg) {
-                    ffmpeg = createFFmpeg({
-                        log: true,
-                        corePath: `https://unpkg.com/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js?v=${Date.now()}`,
-                        mainName: 'main',
-                        progress: ({ ratio }) => {
-                            // 進捗をメインスレッドに報告
-                            self.postMessage({ type: 'progress', ratio });
-                        }
-                    });
-                    await ffmpeg.load();
-                }
-
-                // ファイル書き込み
-                for (let i = 0; i < fileDataList.length; i++) {
-                    const name = `img${String(i).padStart(3, '0')}.jpg`;
-                    ffmpeg.FS('writeFile', name, new Uint8Array(fileDataList[i]));
-                }
-
-                // 変換実行
-                try {
-                    await ffmpeg.run('-start_number', '0', '-framerate', '1', '-i', 'img%03d.jpg', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '28', 'output_check.mp4');
-                } catch (err) {
-                    // exit(0)は無視
-                    if (!err.message || !err.message.includes('exit(0)')) {
-                        throw err;
-                    }
-                }
-
-                // ファイル読み込み
-                const data = ffmpeg.FS('readFile', 'output_check.mp4');
-                
-                // 結果を送信 (Transferable objectとして送信)
-                self.postMessage({ type: 'done', data: data.buffer }, [data.buffer]);
-
-                // クリーンアップ
-                for (let i = 0; i < fileDataList.length; i++) {
-                    try { ffmpeg.FS('unlink', `img${String(i).padStart(3, '0')}.jpg`); } catch(e){}
-                }
-                try { ffmpeg.FS('unlink', 'output_check.mp4'); } catch(e){}
-
-            } catch (error) {
-                self.postMessage({ type: 'error', message: error.message });
-            }
-        }
-    };
-</script>
+<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.0/dist/ffmpeg.min.js"></script>
 
 <script>
+    const { createFFmpeg, fetchFile } = FFmpeg;
+    let ffmpeg = null;
     let selectedFiles = [];
-    let worker = null;
 
     const dropZone = document.getElementById('drop-zone');
     const fileInput = document.getElementById('telop-uploader');
@@ -172,10 +113,19 @@
         if(text) bar.innerText = text;
     };
 
-    // BlobからWorkerを生成する関数
-    const createWorker = () => {
-        const blob = new Blob([document.getElementById('worker-code').textContent], { type: "text/javascript" });
-        return new Worker(URL.createObjectURL(blob));
+    // エンジンを起動する関数
+    const ensureFFmpegLoaded = async () => {
+        // nullなら新しく作る
+        if (ffmpeg === null) {
+            ffmpeg = createFFmpeg({ 
+                log: true,
+                corePath: `https://unpkg.com/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js?v=${Date.now()}`,
+                mainName: 'main' 
+            });
+            await ffmpeg.load();
+        } else if (!ffmpeg.isLoaded()) {
+            await ffmpeg.load();
+        }
     };
 
     document.getElementById('telop-convert-btn').addEventListener('click', async () => {
@@ -189,13 +139,19 @@
         updateProgress(0, '準備中...');
         
         try {
-            // 画像の前処理（メインスレッドで実行）
+            updateProgress(5, 'エンジン準備中...');
+            await new Promise(r => setTimeout(r, 100));
+            
+            await ensureFFmpegLoaded();
+            
             const files = selectedFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
             const CANVAS_W = 1920; const CANVAS_H = 1080;
-            const fileDataList = [];
+
+            // ファイルシステムのクリーンアップは新規インスタンスなので不要だが念のため
+            try { ffmpeg.FS('unlink', 'output_check.mp4'); } catch(e){}
 
             for (let i = 0; i < files.length; i++) {
-                const p = Math.round((i / files.length) * 40); // 0-40%まで画像処理
+                const p = 10 + Math.round((i / files.length) * 40);
                 updateProgress(p, `画像加工中 ${i+1}/${files.length}`);
                 
                 let imgBitmap;
@@ -221,56 +177,52 @@
                 ctx.fillStyle = '#ffffff'; ctx.fillText(`File: ${files[i].name}`, 20, 10);
                 
                 const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 1.0));
-                // Workerに送るためにArrayBufferに変換
-                fileDataList.push(await blob.arrayBuffer());
+                ffmpeg.FS('writeFile', `img${String(i).padStart(3, '0')}.jpg`, await fetchFile(blob));
             }
 
-            updateProgress(40, 'エンジン起動＆エンコード待機中...');
-
-            // Worker生成と実行
-            if (worker) worker.terminate(); // 念のため古いのがあれば消す
-            worker = createWorker();
-
-            worker.onmessage = (e) => {
-                const { type, ratio, data, message } = e.data;
-
-                if (type === 'progress') {
-                    // 40%から100%の間で進捗を表示
-                    if (ratio >= 0 && ratio <= 1) {
-                        const p = 40 + Math.floor(ratio * 60);
-                        updateProgress(p, `エンコード中... ${Math.floor(ratio * 100)}%`);
-                    }
-                } else if (type === 'done') {
-                    // 完了
-                    updateProgress(100, '完了');
-                    const blob = new Blob([data], { type: 'video/mp4' }); 
-                    const url = URL.createObjectURL(blob);
-                    
-                    resultArea.innerHTML = `
-                        <div class="alert alert-success fw-bold">✨ チェック用動画完成 (1秒/枚)</div>
-                        <video src="${url}" controls class="w-100 mb-3" style="max-height: 300px; background:#000;"></video>
-                        <div class="mb-4"><a href="${url}" download="telop_check_ai.mp4" class="btn btn-success fw-bold px-5">⬇ 動画を保存</a></div>
-                        <div class="card border-info text-start"><div class="card-header bg-info text-white fw-bold">🚀 次のステップ: AIで校正チェック</div><div class="card-body bg-light"><p class="small text-muted mb-2">保存した動画をGeminiにアップロードして、誤字脱字や固有名詞のチェックを行いましょう。</p><a href="https://gemini.google.com/gem/1dN_UBLXFguu4dfD4ZUWab1FV2mc5Jupv?usp=sharing" target="_blank" class="btn btn-outline-primary w-100 fw-bold mb-3">🤖 校閲Geminiを開く</a></div></div>
-                    `;
-                    worker.terminate(); // 使い終わったら即破棄
-                    worker = null;
-                    btn.disabled = false; btn.innerText = "動画を作成 (MP4)";
-                } else if (type === 'error') {
-                    console.error(message);
-                    resultArea.innerHTML = `<div class="alert alert-danger">エラーが発生しました:<br>${message}</div>`;
-                    worker.terminate();
-                    worker = null;
-                    btn.disabled = false; btn.innerText = "動画を作成 (MP4)";
+            updateProgress(50, 'エンコード中...');
+            
+            try {
+                await ffmpeg.run('-start_number', '0', '-framerate', '1', '-i', 'img%03d.jpg', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '28', 'output_check.mp4');
+            } catch (ffmpegError) {
+                if (ffmpegError && ffmpegError.message && ffmpegError.message.includes('exit(0)')) {
+                    console.log('FFmpeg exited with 0 (Clean exit). Continuing as success.');
+                } else {
+                    throw ffmpegError;
                 }
-            };
+            }
 
-            // データ送信して開始
-            worker.postMessage({ type: 'run', fileDataList: fileDataList }, fileDataList);
+            updateProgress(100, '完了');
+            
+            let data;
+            try {
+                data = ffmpeg.FS('readFile', 'output_check.mp4');
+            } catch(e) {
+                throw new Error("動画ファイルの生成に失敗しました。");
+            }
 
+            const blob = new Blob([data.buffer], { type: 'video/mp4' }); 
+            const url = URL.createObjectURL(blob);
+            
+            resultArea.innerHTML = `
+                <div class="alert alert-success fw-bold">✨ チェック用動画完成 (1秒/枚)</div>
+                <video src="${url}" controls class="w-100 mb-3" style="max-height: 300px; background:#000;"></video>
+                <div class="mb-4"><a href="${url}" download="telop_check_ai.mp4" class="btn btn-success fw-bold px-5">⬇ 動画を保存</a></div>
+                <div class="card border-info text-start"><div class="card-header bg-info text-white fw-bold">🚀 次のステップ: AIで校正チェック</div><div class="card-body bg-light"><p class="small text-muted mb-2">保存した動画をGeminiにアップロードして、誤字脱字や固有名詞のチェックを行いましょう。</p><a href="https://gemini.google.com/gem/1dN_UBLXFguu4dfD4ZUWab1FV2mc5Jupv?usp=sharing" target="_blank" class="btn btn-outline-primary w-100 fw-bold mb-3">🤖 校閲Geminiを開く</a></div></div>
+            `;
+            
         } catch(e) { 
             console.error(e); 
             resultArea.innerHTML = `<div class="alert alert-danger">エラーが発生しました:<br>${e.message}</div>`;
-            if (worker) worker.terminate();
+        } finally {
+            // ★超重要：連続実行エラー回避のためのリセット処理
+            // 処理が成功しても失敗しても、使い終わったエンジンは必ず廃棄する
+            if (ffmpeg) {
+                try {
+                    ffmpeg.exit(); // Workerを終了させる
+                } catch(e) { console.log('Cleanup warning:', e); }
+                ffmpeg = null; // 変数を空にして、次は新しいエンジンを作るようにする
+            }
             btn.disabled = false; btn.innerText = "動画を作成 (MP4)";
         }
     });
