@@ -47,11 +47,11 @@
     </div>
 
     <div class="spec-info">
-        <strong>⚙️ 出力設定 (完了版):</strong>
+        <strong>⚙️ 出力設定 (連続変換対応版):</strong>
         <ul class="mt-1">
             <li>フレームレート：1fps (1枚につき1秒表示)</li>
-            <li>解像度：<strong>1920x1080 固定 (グレー帯)</strong></li>
-            <li>動作モード：シングルスレッド (安定動作版)</li>
+            <li>解像度：<strong>1920x1080 固定 (グレー背景 #808080)</strong></li>
+            <li>動作モード：シングルスレッド＋自動リセット機能</li>
         </ul>
     </div>
 
@@ -113,11 +113,12 @@
         if(text) bar.innerText = text;
     };
 
+    // エンジンを起動する関数
     const ensureFFmpegLoaded = async () => {
+        // nullなら新しく作る
         if (ffmpeg === null) {
             ffmpeg = createFFmpeg({ 
                 log: true,
-                // キャッシュ対策付きで安定版シングルスレッドコアを読み込む
                 corePath: `https://unpkg.com/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js?v=${Date.now()}`,
                 mainName: 'main' 
             });
@@ -138,13 +139,15 @@
         updateProgress(0, '準備中...');
         
         try {
-            updateProgress(5, 'エンジン読込中...');
+            updateProgress(5, 'エンジン準備中...');
             await new Promise(r => setTimeout(r, 100));
+            
             await ensureFFmpegLoaded();
             
             const files = selectedFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
             const CANVAS_W = 1920; const CANVAS_H = 1080;
 
+            // ファイルシステムのクリーンアップは新規インスタンスなので不要だが念のため
             try { ffmpeg.FS('unlink', 'output_check.mp4'); } catch(e){}
 
             for (let i = 0; i < files.length; i++) {
@@ -158,8 +161,7 @@
                 const ctx = canvas.getContext('2d');
                 canvas.width = CANVAS_W; canvas.height = CANVAS_H;
                 
-                // ★修正箇所：背景を黒(#000000)からグレー(#808080)に変更
-                // これにより、黒文字のテロップでもはっきりと視認できるようになります。
+                // グレー背景
                 ctx.fillStyle = '#808080'; ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
                 const scale = Math.min(CANVAS_W / imgBitmap.width, CANVAS_H / imgBitmap.height);
@@ -171,7 +173,6 @@
 
                 const fontSize = 40;
                 ctx.font = `bold ${fontSize}px Arial, sans-serif`; ctx.textBaseline = 'top';
-                // 上部のファイル名表示バーの背景も少し明るくして見やすく
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.5)'; ctx.fillRect(0, 0, CANVAS_W, 60);
                 ctx.fillStyle = '#ffffff'; ctx.fillText(`File: ${files[i].name}`, 20, 10);
                 
@@ -181,7 +182,6 @@
 
             updateProgress(50, 'エンコード中...');
             
-            // exit(0)エラーを許容して実行
             try {
                 await ffmpeg.run('-start_number', '0', '-framerate', '1', '-i', 'img%03d.jpg', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '28', 'output_check.mp4');
             } catch (ffmpegError) {
@@ -211,14 +211,20 @@
                 <div class="card border-info text-start"><div class="card-header bg-info text-white fw-bold">🚀 次のステップ: AIで校正チェック</div><div class="card-body bg-light"><p class="small text-muted mb-2">保存した動画をGeminiにアップロードして、誤字脱字や固有名詞のチェックを行いましょう。</p><a href="https://gemini.google.com/gem/1dN_UBLXFguu4dfD4ZUWab1FV2mc5Jupv?usp=sharing" target="_blank" class="btn btn-outline-primary w-100 fw-bold mb-3">🤖 校閲Geminiを開く</a></div></div>
             `;
             
-            for (let i = 0; i < files.length; i++) { try { ffmpeg.FS('unlink', `img${String(i).padStart(3, '0')}.jpg`); } catch(e){} }
-            
         } catch(e) { 
             console.error(e); 
             resultArea.innerHTML = `<div class="alert alert-danger">エラーが発生しました:<br>${e.message}</div>`;
+        } finally {
+            // ★超重要：連続実行エラー回避のためのリセット処理
+            // 処理が成功しても失敗しても、使い終わったエンジンは必ず廃棄する
+            if (ffmpeg) {
+                try {
+                    ffmpeg.exit(); // Workerを終了させる
+                } catch(e) { console.log('Cleanup warning:', e); }
+                ffmpeg = null; // 変数を空にして、次は新しいエンジンを作るようにする
+            }
+            btn.disabled = false; btn.innerText = "動画を作成 (MP4)";
         }
-        
-        btn.disabled = false; btn.innerText = "動画を作成 (MP4)";
     });
 </script>
 </body>
