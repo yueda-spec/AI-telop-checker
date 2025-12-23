@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>テロップ校正用PDF作成ツール</title>
+    <title>AIテロップチェッカー</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
@@ -12,93 +12,125 @@
             border: 4px solid #f3f3f3;
             border-top: 4px solid #3498db;
             border-radius: 50%;
-            width: 30px;
-            height: 30px;
+            width: 24px;
+            height: 24px;
             animation: spin 1s linear infinite;
             display: inline-block;
             vertical-align: middle;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        .step-number {
+            background-color: #2563EB;
+            color: white;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            font-weight: bold;
+            margin-right: 12px;
+        }
+        .step-header {
+            display: flex;
+            align-items: center;
+            border-bottom: 2px solid #E5E7EB;
+            padding-bottom: 12px;
+            margin-bottom: 20px;
+        }
     </style>
 </head>
-<body class="bg-gray-50 text-gray-800 p-6">
+<body class="bg-gray-100 text-gray-800 p-6 min-h-screen">
 
-    <div class="max-w-3xl mx-auto bg-white shadow-lg rounded-lg p-8">
+    <div class="max-w-3xl mx-auto">
         
-        <h1 class="text-2xl font-bold mb-4 text-center">📺 テロップ校正用PDF作成ツール</h1>
+        <h1 class="text-3xl font-extrabold mb-2 text-center text-gray-800">🤖 AIテロップチェッカー</h1>
+        <p class="text-center text-gray-500 mb-8 text-sm">画像データのPDF化から、AIによる校閲までのワークフローツール</p>
 
-        <div class="bg-green-50 border-l-4 border-green-500 p-4 mb-6 rounded">
-            <div class="flex">
+        <div class="bg-white border-l-4 border-green-500 p-4 mb-8 rounded shadow-sm">
+            <div class="flex items-center">
                 <div class="flex-shrink-0">
                     <svg class="h-5 w-5 text-green-500" viewBox="0 0 20 20" fill="currentColor">
                         <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 12a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
                     </svg>
                 </div>
                 <div class="ml-3">
-                    <p class="text-sm text-green-700 font-bold">
-                        【セキュリティについて】<br>
-                        このツールは全ての処理をお使いのPC（ブラウザ）内で行います。<br>
-                        選択した画像データや生成されたPDFが外部サーバーに送信されることは一切ありませんので、機密性の高い素材でも安心してご使用ください。
+                    <p class="text-xs text-green-700 font-bold">
+                        【安心設計】画像処理は全てこのPC内で行われます。サーバーへのデータ送信はありません。
                     </p>
                 </div>
             </div>
         </div>
 
-        <div class="mb-6">
-            <label class="block text-gray-700 text-sm font-bold mb-2" for="fileInput">
-                テロップ画像を選択 (PNGのみ)
-            </label>
-            <input type="file" id="fileInput" multiple accept="image/png" 
-                   class="block w-full text-sm text-gray-500
-                          file:mr-4 file:py-2 file:px-4
-                          file:rounded-full file:border-0
-                          file:text-sm file:font-semibold
-                          file:bg-blue-50 file:text-blue-700
-                          hover:file:bg-blue-100 cursor-pointer border rounded p-2">
-            <p class="text-xs text-gray-500 mt-1">※ファイル名順（1, 2, ... 10）に自動で並び替えます。</p>
-        </div>
-
-        <div class="text-center mb-6">
-            <button id="generateBtn" onclick="generatePDF()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded shadow disabled:opacity-50 disabled:cursor-not-allowed transition duration-150">
-                PDFを作成する
-            </button>
-            <div id="status" class="mt-2 text-sm text-gray-600 hidden">
-                <div class="loader mr-2"></div>処理中... (<span id="progressCount">0</span>/<span id="totalCount">0</span>)
+        <section class="bg-white shadow-lg rounded-xl p-8 mb-8">
+            <div class="step-header">
+                <div class="step-number">1</div>
+                <h2 class="text-xl font-bold text-gray-800">静止画をPDFにまとめる</h2>
             </div>
-        </div>
 
-        <hr class="my-6 border-gray-200">
+            <div class="mb-6">
+                <label class="block text-gray-700 text-sm font-bold mb-2" for="fileInput">
+                    テロップ画像を選択 (PNGのみ)
+                </label>
+                <input type="file" id="fileInput" multiple accept="image/png" 
+                       class="block w-full text-sm text-gray-500
+                              file:mr-4 file:py-2 file:px-4
+                              file:rounded-full file:border-0
+                              file:text-sm file:font-semibold
+                              file:bg-blue-50 file:text-blue-700
+                              hover:file:bg-blue-100 cursor-pointer border border-gray-300 rounded-lg p-2">
+                <p class="text-xs text-gray-500 mt-2">※ファイル名順（1, 2...10）に自動で並び替えて結合します。</p>
+            </div>
 
-        <div id="resultArea" class="hidden text-center bg-gray-100 p-6 rounded-lg">
-            <h2 class="text-lg font-bold mb-4 text-gray-800">🎉 PDF作成完了</h2>
-            
-            <p class="mb-4 text-sm text-gray-600">
-                PDFがダウンロードされました。<br>
-                以下のボタンから校閲用Geminiを開き、PDFを添付してEnterを押してください。
-            </p>
-
-            <a href="https://gemini.google.com/gem/1dN_UBLXFguu4dfD4ZUWab1FV2mc5Jupv?usp=sharing" target="_blank" 
-               class="inline-flex items-center bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-bold py-3 px-6 rounded shadow-lg transform transition hover:-translate-y-1">
-                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
-                校閲用Gemini (GEM) を開く
-            </a>
-        </div>
-
-        <div class="mt-8 bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded">
-            <div class="flex">
-                <div class="flex-shrink-0">
-                    <svg class="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
-                        <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
-                    </svg>
-                </div>
-                <div class="ml-3">
-                    <h3 class="text-sm leading-5 font-bold text-yellow-800">必ずご確認ください</h3>
-                    <ul class="list-disc list-inside text-sm text-yellow-700 mt-1">
-                        <li><strong>音声チェックはできません：</strong> テロップの内容が話している言葉と一致しているかの確認（ONフォロー確認）はできません。</li>
-                        <li><strong>ダブルチェック必須：</strong> AIは誤った指摘や見落としをする可能性があります。最終的な確認は必ず人間が行ってください。</li>
-                    </ul>
+            <div class="text-center">
+                <button id="generateBtn" onclick="generatePDF()" class="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-10 rounded-lg shadow disabled:opacity-50 disabled:cursor-not-allowed transition duration-150 flex justify-center items-center mx-auto">
+                    PDFを作成する
+                </button>
+                <div id="status" class="mt-3 text-sm text-gray-600 hidden">
+                    <div class="loader mr-2"></div>処理中... (<span id="progressCount">0</span>/<span id="totalCount">0</span>)
                 </div>
             </div>
+        </section>
+
+        <section id="step2Area" class="hidden bg-white shadow-lg rounded-xl p-8 mb-8 border-2 border-indigo-100 relative overflow-hidden">
+            <div class="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-indigo-50 rounded-full z-0"></div>
+
+            <div class="step-header relative z-10">
+                <div class="step-number bg-indigo-600">2</div>
+                <h2 class="text-xl font-bold text-gray-800">校閲用AI (Gemini) に送る</h2>
+            </div>
+
+            <div class="relative z-10">
+                <p class="mb-4 text-sm text-gray-600">
+                    PDFがダウンロードフォルダに保存されました。<br>
+                    下のボタンから校閲GEMを開き、<span class="font-bold text-indigo-700">PDFを添付してEnterを押してください。</span>
+                </p>
+
+                <div class="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 text-center">
+                    <p class="text-red-600 font-bold text-lg mb-1">⚠️ 重要：モデル選択について</p>
+                    <p class="text-sm text-red-800 leading-relaxed">
+                        Geminiの画面上部で、必ず <span class="bg-red-200 px-1 rounded font-bold">Pro</span> を選択してください。<br>
+                        <span class="text-xs opacity-80">※デフォルトの「Flash（高速）」モードでは、文字を正しく認識できません。</span>
+                    </p>
+                </div>
+
+                <div class="text-center">
+                    <a href="https://gemini.google.com/gem/1dN_UBLXFguu4dfD4ZUWab1FV2mc5Jupv?usp=sharing" target="_blank" 
+                    class="inline-flex items-center justify-center w-full sm:w-auto bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold py-4 px-8 rounded-lg shadow-lg transform transition hover:-translate-y-1">
+                        <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                        校閲用Gemini (GEM) を起動する
+                    </a>
+                </div>
+            </div>
+        </section>
+
+        <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded text-sm text-yellow-800">
+            <h3 class="font-bold mb-1">必ずご確認ください</h3>
+            <ul class="list-disc list-inside opacity-90">
+                <li><strong>音声チェック不可：</strong> テロップと発言内容の一致確認（ONフォロー）はできません。</li>
+                <li><strong>ダブルチェック必須：</strong> AIは判断を誤ることがあります。最終確認は必ず人間が行ってください。</li>
+            </ul>
         </div>
 
     </div>
@@ -112,7 +144,7 @@
             const progressCount = document.getElementById('progressCount');
             const totalCount = document.getElementById('totalCount');
             const generateBtn = document.getElementById('generateBtn');
-            const resultArea = document.getElementById('resultArea');
+            const step2Area = document.getElementById('step2Area');
 
             const files = Array.from(fileInput.files);
 
@@ -123,7 +155,8 @@
 
             // UI更新
             generateBtn.disabled = true;
-            resultArea.classList.add('hidden');
+            generateBtn.innerText = "作成中...";
+            step2Area.classList.add('hidden'); // 再実行時は隠す
             statusDiv.classList.remove('hidden');
             totalCount.innerText = files.length;
             progressCount.innerText = 0;
@@ -134,117 +167,107 @@
                 files.sort((a, b) => collator.compare(a.name, b.name));
 
                 // PDFドキュメント作成
-                // 初期化時にデフォルトのA4ページ(ページ1)が作成されます
                 const pdf = new jsPDF({
                     orientation: 'landscape',
                     unit: 'px',
                     compress: true
                 });
                 
-                // 【修正点】ここで deletePage(1) をするとエラーになる可能性があるため削除しました。
-                // 代わりに、最後に不要な1ページ目を削除します。
+                // iOS Safari対策: 
+                // 最初にページを削除せず、追加してから最後に1ページ目を削除する方式
 
                 for (let i = 0; i < files.length; i++) {
                     const file = files[i];
                     progressCount.innerText = i + 1;
 
-                    // 画像を読み込む
+                    // 画像処理
                     const imgData = await readFileAsDataURL(file);
                     const img = await loadImage(imgData);
-
-                    // Canvasで画像を合成
                     const mergedImage = drawToCanvas(img, file.name);
 
-                    // 新しいページを追加（サイズは画像に合わせる）
-                    // ※ addPageすると、その新しいページがアクティブになります
+                    // ページ追加
                     const orientation = mergedImage.width > mergedImage.height ? 'landscape' : 'portrait';
                     pdf.addPage([mergedImage.width, mergedImage.height], orientation);
-                    
-                    // 画像をPDFページ全面に配置
                     pdf.addImage(mergedImage.data, 'JPEG', 0, 0, mergedImage.width, mergedImage.height);
                 }
 
-                // 【修正点】全ての画像を追加し終わった後、一番最初の空白ページ（index 1）を削除
+                // 最初の空白ページを削除
                 if (pdf.getNumberOfPages() > 1) {
                     pdf.deletePage(1);
                 }
 
                 // 保存
                 const timestamp = new Date().toISOString().slice(0,19).replace(/[-T:]/g,"");
-                pdf.save(`terop_check_${timestamp}.pdf`);
+                pdf.save(`AI_Check_Data_${timestamp}.pdf`);
 
-                // 完了表示
-                resultArea.classList.remove('hidden');
+                // STEP 2を表示
+                step2Area.classList.remove('hidden');
+                
+                // スムーズにスクロール
+                step2Area.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
             } catch (err) {
                 console.error(err);
                 alert("エラーが発生しました: " + err.message);
             } finally {
                 generateBtn.disabled = false;
+                generateBtn.innerText = "PDFを作成する";
                 statusDiv.classList.add('hidden');
             }
         }
 
-        // Canvas描画処理
+        // Canvas描画処理（変更なし・高画質設定維持）
         function drawToCanvas(img, fileName) {
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
 
-            // --- 設定値 ---
-            const baseWidth = img.width; // 画像の幅に合わせる
-            const fontSize = Math.max(24, Math.floor(baseWidth / 40)); // 幅に応じてフォントサイズ調整
-            const padding = fontSize; // 余白
+            const baseWidth = img.width;
+            const fontSize = Math.max(24, Math.floor(baseWidth / 40));
+            const padding = fontSize;
             const lineHeight = fontSize * 1.5;
             
-            // --- テキストの折り返し計算 ---
             ctx.font = `bold ${fontSize}px sans-serif`;
             const maxWidth = baseWidth - (padding * 2);
             const lines = wrapText(ctx, fileName, maxWidth);
             
-            // ヘッダーの高さを計算
             const headerHeight = (lines.length * lineHeight) + (padding * 2);
             const totalHeight = headerHeight + img.height;
 
-            // Canvasサイズ決定
             canvas.width = baseWidth;
             canvas.height = totalHeight;
 
-            // 1. ヘッダー描画（黒背景）
+            // ヘッダー（黒）
             ctx.fillStyle = "#000000";
             ctx.fillRect(0, 0, baseWidth, headerHeight);
 
-            // 2. ファイル名描画（白文字）
+            // ファイル名（白）
             ctx.fillStyle = "#FFFFFF";
             ctx.font = `bold ${fontSize}px sans-serif`;
             ctx.textBaseline = "top";
-            
             let currentY = padding;
             lines.forEach(line => {
                 ctx.fillText(line, padding, currentY);
                 currentY += lineHeight;
             });
 
-            // 3. テロップエリア描画（薄いグレー背景）
-            ctx.fillStyle = "#D3D3D3"; // LightGray
+            // テロップ背景（薄グレー）
+            ctx.fillStyle = "#D3D3D3";
             ctx.fillRect(0, headerHeight, baseWidth, img.height);
 
-            // 4. テロップ画像描画
+            // 画像
             ctx.drawImage(img, 0, headerHeight);
 
             return {
-                // AI認識精度向上のため品質を0.95に設定
-                data: canvas.toDataURL('image/jpeg', 0.95), 
+                data: canvas.toDataURL('image/jpeg', 0.95), // 高品質維持
                 width: canvas.width,
                 height: canvas.height
             };
         }
 
-        // テキスト折り返し計算用関数
         function wrapText(ctx, text, maxWidth) {
-            const words = text.split(''); // 文字単位で分割（日本語対応）
+            const words = text.split('');
             let lines = [];
             let currentLine = words[0];
-
             for (let i = 1; i < words.length; i++) {
                 let word = words[i];
                 let width = ctx.measureText(currentLine + word).width;
@@ -259,7 +282,6 @@
             return lines;
         }
 
-        // ファイル読み込みヘルパー
         function readFileAsDataURL(file) {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
@@ -269,7 +291,6 @@
             });
         }
 
-        // 画像読み込みヘルパー
         function loadImage(src) {
             return new Promise((resolve, reject) => {
                 const img = new Image();
