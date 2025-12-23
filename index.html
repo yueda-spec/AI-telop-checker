@@ -100,7 +100,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
 
-<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.10.1/dist/ffmpeg.min.js"></script>
+<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
 
 <script>
     const { createFFmpeg, fetchFile } = FFmpeg;
@@ -133,12 +133,12 @@
 
     const ensureFFmpegLoaded = async () => {
         if (ffmpeg === null) {
-            // ★修正点2：初期化設定を確実にシングルスレッドにする
+            // ★修正点2：ここが決定的な違いです！
+            // core-st (Single Threaded) 版のURLを明示的に指定します。
+            // これにより SharedArrayBuffer がない環境でも強制的に動きます。
             ffmpeg = createFFmpeg({ 
                 log: true,
-                // シングルスレッド動作させるための魔法の呪文 (mainName)
-                mainName: 'main', 
-                corePath: 'https://unpkg.com/@ffmpeg/core@0.10.0/dist/ffmpeg-core.js',
+                corePath: 'https://unpkg.com/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js',
             });
             await ffmpeg.load();
         } else if (!ffmpeg.isLoaded()) {
@@ -182,13 +182,14 @@
                 const offsetX = (CANVAS_W - drawW) / 2; const offsetY = (CANVAS_H - drawH) / 2;
 
                 ctx.drawImage(imgBitmap, offsetX, offsetY, drawW, drawH);
-                imgBitmap.close();
+                imgBitmap.close(); // メモリ解放
 
                 const fontSize = 40;
                 ctx.font = `bold ${fontSize}px Arial, sans-serif`; ctx.textBaseline = 'top';
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'; ctx.fillRect(0, 0, CANVAS_W, 60);
                 ctx.fillStyle = '#ffffff'; ctx.fillText(`File: ${files[i].name}`, 20, 10);
                 
+                // 画質1.0 (最高)
                 const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 1.0));
                 ffmpeg.FS('writeFile', `img${String(i).padStart(3, '0')}.jpg`, await fetchFile(blob));
             }
