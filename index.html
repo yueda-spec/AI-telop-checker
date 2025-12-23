@@ -47,11 +47,11 @@
     </div>
 
     <div class="spec-info">
-        <strong>⚙️ 出力設定 (連続変換対応版):</strong>
+        <strong>⚙️ 出力設定 (プログレスバー対応版):</strong>
         <ul class="mt-1">
             <li>フレームレート：1fps (1枚につき1秒表示)</li>
             <li>解像度：<strong>1920x1080 固定 (グレー背景 #808080)</strong></li>
-            <li>動作モード：シングルスレッド＋自動リセット機能</li>
+            <li>動作モード：シングルスレッド＋詳細進捗表示</li>
         </ul>
     </div>
 
@@ -88,6 +88,8 @@
     const { createFFmpeg, fetchFile } = FFmpeg;
     let ffmpeg = null;
     let selectedFiles = [];
+    // 進捗管理用フラグ
+    let isEncoding = false;
 
     const dropZone = document.getElementById('drop-zone');
     const fileInput = document.getElementById('telop-uploader');
@@ -113,14 +115,20 @@
         if(text) bar.innerText = text;
     };
 
-    // エンジンを起動する関数
     const ensureFFmpegLoaded = async () => {
-        // nullなら新しく作る
         if (ffmpeg === null) {
             ffmpeg = createFFmpeg({ 
                 log: true,
                 corePath: `https://unpkg.com/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js?v=${Date.now()}`,
-                mainName: 'main' 
+                mainName: 'main',
+                // ★追加：進捗情報(progress)を受け取る設定
+                progress: ({ ratio }) => {
+                    // エンコードモードに入っている時のみバーを更新（0.0〜1.0 を 50%〜100% にマッピング）
+                    if (isEncoding && ratio >= 0 && ratio <= 1) {
+                        const p = 50 + Math.floor(ratio * 50);
+                        updateProgress(p, `エンコード中... ${Math.floor(ratio * 100)}%`);
+                    }
+                }
             });
             await ffmpeg.load();
         } else if (!ffmpeg.isLoaded()) {
@@ -136,6 +144,8 @@
         
         btn.disabled = true; btn.innerText = "生成中..."; 
         resultArea.innerHTML = '<div class="spinner-border text-warning" role="status"></div><div class="mt-2">エンジン起動中...</div>';
+        
+        isEncoding = false; // フラグ初期化
         updateProgress(0, '準備中...');
         
         try {
@@ -147,9 +157,9 @@
             const files = selectedFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
             const CANVAS_W = 1920; const CANVAS_H = 1080;
 
-            // ファイルシステムのクリーンアップは新規インスタンスなので不要だが念のため
             try { ffmpeg.FS('unlink', 'output_check.mp4'); } catch(e){}
 
+            // 画像処理ループ（0%〜50%）
             for (let i = 0; i < files.length; i++) {
                 const p = 10 + Math.round((i / files.length) * 40);
                 updateProgress(p, `画像加工中 ${i+1}/${files.length}`);
@@ -180,19 +190,22 @@
                 ffmpeg.FS('writeFile', `img${String(i).padStart(3, '0')}.jpg`, await fetchFile(blob));
             }
 
-            updateProgress(50, 'エンコード中...');
-            
+            // エンコード開始（50%〜100%）
+            updateProgress(50, 'エンコード開始...');
+            isEncoding = true; // ここから進捗バーは自動更新に任せる
+
             try {
                 await ffmpeg.run('-start_number', '0', '-framerate', '1', '-i', 'img%03d.jpg', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '28', 'output_check.mp4');
             } catch (ffmpegError) {
                 if (ffmpegError && ffmpegError.message && ffmpegError.message.includes('exit(0)')) {
-                    console.log('FFmpeg exited with 0 (Clean exit). Continuing as success.');
+                    console.log('FFmpeg exited with 0 (Clean exit).');
                 } else {
                     throw ffmpegError;
                 }
             }
 
             updateProgress(100, '完了');
+            isEncoding = false;
             
             let data;
             try {
@@ -215,14 +228,11 @@
             console.error(e); 
             resultArea.innerHTML = `<div class="alert alert-danger">エラーが発生しました:<br>${e.message}</div>`;
         } finally {
-            // ★超重要：連続実行エラー回避のためのリセット処理
-            // 処理が成功しても失敗しても、使い終わったエンジンは必ず廃棄する
             if (ffmpeg) {
-                try {
-                    ffmpeg.exit(); // Workerを終了させる
-                } catch(e) { console.log('Cleanup warning:', e); }
-                ffmpeg = null; // 変数を空にして、次は新しいエンジンを作るようにする
+                try { ffmpeg.exit(); } catch(e){}
+                ffmpeg = null;
             }
+            isEncoding = false;
             btn.disabled = false; btn.innerText = "動画を作成 (MP4)";
         }
     });
