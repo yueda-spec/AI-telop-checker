@@ -13,7 +13,6 @@
         .footer-info { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid #eee; font-size: 0.85rem; color: #6c757d; }
         .footer-section-title { font-weight: bold; margin-bottom: 0.5rem; color: #343a40; display: flex; align-items: center; }
         
-        /* ドラッグ&ドロップエリアの装飾 */
         .drop-zone { 
             border: 2px dashed #dee2e6; 
             border-radius: 8px; 
@@ -24,13 +23,12 @@
             cursor: pointer;
             position: relative;
         }
-        /* ドラッグ中の見た目変化 */
         .drop-zone.dragover { 
             border-color: #0d6efd; 
             background: #e7f1ff; 
             transform: scale(1.02);
         }
-        .drop-zone p { pointer-events: none; } /* 文字が邪魔しないように */
+        .drop-zone p { pointer-events: none; }
 
         .spec-info { background-color: #e9ecef; border-left: 4px solid #6c757d; padding: 10px 15px; font-size: 0.85rem; color: #495057; margin-bottom: 15px; border-radius: 0 4px 4px 0; }
         .spec-info ul { margin: 0; padding-left: 1.2rem; }
@@ -101,48 +99,30 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
-<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+
+<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.10.1/dist/ffmpeg.min.js"></script>
 
 <script>
     const { createFFmpeg, fetchFile } = FFmpeg;
     let ffmpeg = null;
-    let selectedFiles = []; // ファイル保持用
+    let selectedFiles = [];
 
-    // ドラッグ＆ドロップ処理
     const dropZone = document.getElementById('drop-zone');
     const fileInput = document.getElementById('telop-uploader');
     const fileCount = document.getElementById('file-count');
 
-    // ファイルリスト更新処理
     const updateFileList = (files) => {
         if (!files || files.length === 0) return;
-        // FileListを配列に変換して追加（重複チェックは簡易的に省略）
         const newFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
-        selectedFiles = newFiles; // 今回は上書きモード（追加モードにしたい場合はconcat）
+        selectedFiles = newFiles; 
         fileCount.innerText = `✅ ${selectedFiles.length}個のファイルを選択中`;
     };
 
-    dropZone.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        dropZone.classList.add('dragover');
-    });
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', () => { dropZone.classList.remove('dragover'); });
+    dropZone.addEventListener('drop', (e) => { e.preventDefault(); dropZone.classList.remove('dragover'); updateFileList(e.dataTransfer.files); });
+    fileInput.addEventListener('change', (e) => { updateFileList(e.target.files); });
 
-    dropZone.addEventListener('dragleave', () => {
-        dropZone.classList.remove('dragover');
-    });
-
-    dropZone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        dropZone.classList.remove('dragover');
-        updateFileList(e.dataTransfer.files);
-    });
-
-    fileInput.addEventListener('change', (e) => {
-        updateFileList(e.target.files);
-    });
-
-
-    // 進捗バー更新ヘルパー
     const updateProgress = (percent, text) => {
         const barContainer = document.getElementById('telop-progress-bar');
         const bar = barContainer.firstElementChild;
@@ -153,16 +133,12 @@
 
     const ensureFFmpegLoaded = async () => {
         if (ffmpeg === null) {
+            // ★修正点2：初期化設定を確実にシングルスレッドにする
             ffmpeg = createFFmpeg({ 
                 log: true,
-                // シングルスレッド版 (重要)
-                corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
-                progress: ({ ratio }) => {
-                    if(ratio > 0 && ratio <= 1) {
-                        const p = 50 + Math.round(ratio * 50);
-                        updateProgress(p, `エンコード中... ${p}%`);
-                    }
-                }
+                // シングルスレッド動作させるための魔法の呪文 (mainName)
+                mainName: 'main', 
+                corePath: 'https://unpkg.com/@ffmpeg/core@0.10.0/dist/ffmpeg-core.js',
             });
             await ffmpeg.load();
         } else if (!ffmpeg.isLoaded()) {
@@ -174,13 +150,9 @@
         const resultArea = document.getElementById('telop-result-area');
         const btn = document.getElementById('telop-convert-btn');
 
-        if (selectedFiles.length === 0) { 
-            alert("画像をドラッグ＆ドロップするか、選択してください"); 
-            return; 
-        }
+        if (selectedFiles.length === 0) { alert("画像をドラッグ＆ドロップするか、選択してください"); return; }
         
-        btn.disabled = true; 
-        btn.innerText = "生成中..."; 
+        btn.disabled = true; btn.innerText = "生成中..."; 
         resultArea.innerHTML = '<div class="spinner-border text-warning" role="status"></div><div class="mt-2">エンジン起動中...</div>';
         updateProgress(0, '準備中...');
         
@@ -189,75 +161,43 @@
             await new Promise(r => setTimeout(r, 100));
             await ensureFFmpegLoaded();
             
-            // ファイル名順不同対策
-            const files = selectedFiles.sort((a, b) => 
-                a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
-            );
-
-            // 修正③：出力解像度をFHD固定
-            const CANVAS_W = 1920;
-            const CANVAS_H = 1080;
+            const files = selectedFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+            const CANVAS_W = 1920; const CANVAS_H = 1080;
 
             for (let i = 0; i < files.length; i++) {
                 const p = 10 + Math.round((i / files.length) * 40);
                 updateProgress(p, `画像加工中 ${i+1}/${files.length}`);
                 
                 let imgBitmap;
-                try {
-                    imgBitmap = await createImageBitmap(files[i]);
-                } catch(e) {
-                    throw new Error(`画像の読み込みに失敗しました: ${files[i].name}`);
-                }
+                try { imgBitmap = await createImageBitmap(files[i]); } catch(e) { throw new Error(`画像の読み込みに失敗しました: ${files[i].name}`); }
 
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
-                canvas.width = CANVAS_W; 
-                canvas.height = CANVAS_H;
+                canvas.width = CANVAS_W; canvas.height = CANVAS_H;
                 
-                // 黒背景 (レターボックス)
-                ctx.fillStyle = '#000000'; 
-                ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+                ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
-                // 画像のアスペクト比を維持して中央配置
                 const scale = Math.min(CANVAS_W / imgBitmap.width, CANVAS_H / imgBitmap.height);
-                const drawW = imgBitmap.width * scale;
-                const drawH = imgBitmap.height * scale;
-                const offsetX = (CANVAS_W - drawW) / 2;
-                const offsetY = (CANVAS_H - drawH) / 2;
+                const drawW = imgBitmap.width * scale; const drawH = imgBitmap.height * scale;
+                const offsetX = (CANVAS_W - drawW) / 2; const offsetY = (CANVAS_H - drawH) / 2;
 
                 ctx.drawImage(imgBitmap, offsetX, offsetY, drawW, drawH);
-                
-                // 修正①：メモリ解放 (重要)
                 imgBitmap.close();
 
-                // ヘッダー情報
                 const fontSize = 40;
-                ctx.font = `bold ${fontSize}px Arial, sans-serif`; 
-                ctx.textBaseline = 'top';
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'; 
-                ctx.fillRect(0, 0, CANVAS_W, 60);
-                ctx.fillStyle = '#ffffff'; 
-                ctx.fillText(`File: ${files[i].name}`, 20, 10);
+                ctx.font = `bold ${fontSize}px Arial, sans-serif`; ctx.textBaseline = 'top';
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'; ctx.fillRect(0, 0, CANVAS_W, 60);
+                ctx.fillStyle = '#ffffff'; ctx.fillText(`File: ${files[i].name}`, 20, 10);
                 
-                // 修正④：最高画質(1.0)で保存
                 const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 1.0));
                 ffmpeg.FS('writeFile', `img${String(i).padStart(3, '0')}.jpg`, await fetchFile(blob));
             }
 
-            updateProgress(50, 'エンコード準備中...');
+            updateProgress(50, 'エンコード中 (少々お待ちください)...');
             
-            // 1fps (1枚1秒) で動画化
-            await ffmpeg.run(
-                '-framerate', '1', 
-                '-i', 'img%03d.jpg', 
-                '-c:v', 'libx264', 
-                '-pix_fmt', 'yuv420p', 
-                '-crf', '28', 
-                'output_check.mp4'
-            );
+            await ffmpeg.run('-framerate', '1', '-i', 'img%03d.jpg', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '28', 'output_check.mp4');
 
             updateProgress(100, '完了');
-            
             const data = ffmpeg.FS('readFile', 'output_check.mp4'); 
             const blob = new Blob([data.buffer], { type: 'video/mp4' }); 
             const url = URL.createObjectURL(blob);
@@ -265,36 +205,19 @@
             resultArea.innerHTML = `
                 <div class="alert alert-success fw-bold">✨ チェック用動画完成 (1秒/枚)</div>
                 <video src="${url}" controls class="w-100 mb-3" style="max-height: 300px; background:#000;"></video>
-                <div class="mb-4">
-                    <a href="${url}" download="telop_check_ai.mp4" class="btn btn-success fw-bold px-5">⬇ 動画を保存</a>
-                </div>
-                <div class="card border-info text-start">
-                    <div class="card-header bg-info text-white fw-bold">🚀 次のステップ: AIで校正チェック</div>
-                    <div class="card-body bg-light">
-                        <p class="small text-muted mb-2">保存した動画をGeminiにアップロードして、誤字脱字や固有名詞のチェックを行いましょう。</p>
-                        <a href="https://gemini.google.com/gem/1dN_UBLXFguu4dfD4ZUWab1FV2mc5Jupv?usp=sharing" target="_blank" class="btn btn-outline-primary w-100 fw-bold mb-3">🤖 校閲Geminiを開く</a>
-                    </div>
-                </div>
+                <div class="mb-4"><a href="${url}" download="telop_check_ai.mp4" class="btn btn-success fw-bold px-5">⬇ 動画を保存</a></div>
+                <div class="card border-info text-start"><div class="card-header bg-info text-white fw-bold">🚀 次のステップ: AIで校正チェック</div><div class="card-body bg-light"><p class="small text-muted mb-2">保存した動画をGeminiにアップロードして、誤字脱字や固有名詞のチェックを行いましょう。</p><a href="https://gemini.google.com/gem/1dN_UBLXFguu4dfD4ZUWab1FV2mc5Jupv?usp=sharing" target="_blank" class="btn btn-outline-primary w-100 fw-bold mb-3">🤖 校閲Geminiを開く</a></div></div>
             `;
             
-            // お掃除
-            for (let i = 0; i < files.length; i++) { 
-                try { ffmpeg.FS('unlink', `img${String(i).padStart(3, '0')}.jpg`); } catch(e){} 
-            }
+            for (let i = 0; i < files.length; i++) { try { ffmpeg.FS('unlink', `img${String(i).padStart(3, '0')}.jpg`); } catch(e){} }
             try { ffmpeg.FS('unlink', 'output_check.mp4'); } catch(e){}
             
-            // 修正②：FFmpegインスタンスはあえて維持する
-            // 理由: Single-Thread版はロードに時間がかかるため、
-            // 毎回 exit() すると再実行時に30秒待つことになるため。
-            // FS('unlink') でゴミ掃除を徹底することで代用。
-
         } catch(e) { 
             console.error(e); 
             resultArea.innerHTML = `<div class="alert alert-danger">エラーが発生しました:<br>${e.message}</div>`;
         }
         
-        btn.disabled = false; 
-        btn.innerText = "動画を作成 (MP4)";
+        btn.disabled = false; btn.innerText = "動画を作成 (MP4)";
     });
 </script>
 </body>
