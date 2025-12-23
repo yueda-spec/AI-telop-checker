@@ -47,11 +47,11 @@
     </div>
 
     <div class="spec-info">
-        <strong>⚙️ 出力設定 (GitHub Pages 最終修正版):</strong>
+        <strong>⚙️ 出力設定 (exit(0)対策済):</strong>
         <ul class="mt-1">
             <li>フレームレート：1fps (1枚につき1秒表示)</li>
             <li>解像度：<strong>1920x1080 固定 (黒帯付き)</strong></li>
-            <li>動作モード：シングルスレッド (キャッシュ対策済)</li>
+            <li>動作モード：シングルスレッド＋例外無視処理</li>
         </ul>
     </div>
 
@@ -116,11 +116,9 @@
 
     const ensureFFmpegLoaded = async () => {
         if (ffmpeg === null) {
-            // ★重要修正: キャッシュ対策とバージョン整合性
-            // 1. corePathの末尾に `?v=${Date.now()}` を追加 → 毎回必ず新しいファイルをサーバーから取得させます(キャッシュ汚染の回避)
-            // 2. mainName: 'main' を維持 → シングルスレッドの入り口を明示
             ffmpeg = createFFmpeg({ 
                 log: true,
+                // キャッシュバスターとmainName指定
                 corePath: `https://unpkg.com/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js?v=${Date.now()}`,
                 mainName: 'main' 
             });
@@ -141,13 +139,15 @@
         updateProgress(0, '準備中...');
         
         try {
-            updateProgress(5, 'エンジン読込中(初回は数分かかります)...');
+            updateProgress(5, 'エンジン読込中...');
             await new Promise(r => setTimeout(r, 100));
-            
             await ensureFFmpegLoaded();
             
             const files = selectedFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
             const CANVAS_W = 1920; const CANVAS_H = 1080;
+
+            // ファイルシステムのお掃除
+            try { ffmpeg.FS('unlink', 'output_check.mp4'); } catch(e){}
 
             for (let i = 0; i < files.length; i++) {
                 const p = 10 + Math.round((i / files.length) * 40);
@@ -180,10 +180,30 @@
 
             updateProgress(50, 'エンコード中...');
             
-            await ffmpeg.run('-framerate', '1', '-i', 'img%03d.jpg', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '28', 'output_check.mp4');
+            // ★重要：ここをtry-catchで囲み、「exit(0)」エラーを握りつぶす
+            try {
+                // -start_number 0 を追加して、000から読むことを明示
+                await ffmpeg.run('-start_number', '0', '-framerate', '1', '-i', 'img%03d.jpg', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '28', 'output_check.mp4');
+            } catch (ffmpegError) {
+                // エラーメッセージに "exit(0)" が含まれていたら、それは「成功」とみなす
+                if (ffmpegError && ffmpegError.message && ffmpegError.message.includes('exit(0)')) {
+                    console.log('FFmpeg exited with 0 (Clean exit). Continuing as success.');
+                } else {
+                    // それ以外の本当のエラーは外に投げる
+                    throw ffmpegError;
+                }
+            }
 
             updateProgress(100, '完了');
-            const data = ffmpeg.FS('readFile', 'output_check.mp4'); 
+            
+            // ファイルが生成されているか確認
+            let data;
+            try {
+                data = ffmpeg.FS('readFile', 'output_check.mp4');
+            } catch(e) {
+                throw new Error("動画ファイルの生成に失敗しました（ファイルが見つかりません）。");
+            }
+
             const blob = new Blob([data.buffer], { type: 'video/mp4' }); 
             const url = URL.createObjectURL(blob);
             
@@ -194,14 +214,12 @@
                 <div class="card border-info text-start"><div class="card-header bg-info text-white fw-bold">🚀 次のステップ: AIで校正チェック</div><div class="card-body bg-light"><p class="small text-muted mb-2">保存した動画をGeminiにアップロードして、誤字脱字や固有名詞のチェックを行いましょう。</p><a href="https://gemini.google.com/gem/1dN_UBLXFguu4dfD4ZUWab1FV2mc5Jupv?usp=sharing" target="_blank" class="btn btn-outline-primary w-100 fw-bold mb-3">🤖 校閲Geminiを開く</a></div></div>
             `;
             
+            // 画像のお掃除
             for (let i = 0; i < files.length; i++) { try { ffmpeg.FS('unlink', `img${String(i).padStart(3, '0')}.jpg`); } catch(e){} }
-            try { ffmpeg.FS('unlink', 'output_check.mp4'); } catch(e){}
             
         } catch(e) { 
             console.error(e); 
-            let msg = e.message;
-            if(msg.includes('proxy_main')) msg += '<br>※ブラウザのキャッシュに古い設定が残っています。シークレットウィンドウで試すと確実です。';
-            resultArea.innerHTML = `<div class="alert alert-danger">エラーが発生しました:<br>${msg}</div>`;
+            resultArea.innerHTML = `<div class="alert alert-danger">エラーが発生しました:<br>${e.message}</div>`;
         }
         
         btn.disabled = false; btn.innerText = "動画を作成 (MP4)";
