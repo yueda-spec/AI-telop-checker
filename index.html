@@ -1,278 +1,279 @@
-<!--
-================================================================================
-【重要設計メモ / DO NOT CHANGE】
-
-このHTMLは「GitHub Pages」での公開を前提とした構成です。
-GitHub Pages では Cross-Origin Isolation（COOP / COEP）が設定できないため、
-SharedArrayBuffer を利用するマルチスレッド版 ffmpeg.wasm は使用できません。
-
-そのため、以下の制約は「意図的」かつ「必須」です。
-
-■ 絶対に変更してはいけない点
-1. ffmpeg.wasm のバージョンを変更しないこと
-   - @ffmpeg/ffmpeg@0.11.0
-   - @ffmpeg/core-st@0.11.1（Single Thread 専用ビルド）
-
-2. マルチスレッド（pthread）を有効化しないこと
-   - SharedArrayBuffer は GitHub Pages では利用不可
-   - COOP / COEP を前提とする修正は禁止
-
-3. ffmpeg インスタンスを使い回さないこと
-   - 処理完了後は ffmpeg.exit() で必ず Worker を破棄する
-   - 再利用すると proxy_main エラーや abort が発生する
-
-4. corePath の指定を削除・変更しないこと
-   - core-st + キャッシュバスターは必須
-   - CDNキャッシュによる WASM 不整合を防ぐため
-
-■ 注意
-「最新版を使う」「高速化のためにマルチスレッド化する」
-「SharedArrayBuffer を有効にする」といった提案は、
-本プロジェクトの公開環境（GitHub Pages）では成立しません。
-
-この構成は、GitHub Pages 上で
-・安定動作
-・セキュリティ警告回避
-・再実行耐性
-を満たすための最終確定形です。
-
-================================================================================
--->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AIテロップチェッカー</title>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
-    
+    <title>テロップ校正用PDF作成ツール</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
-        body { background-color: #f0f2f5; padding-top: 2rem; padding-bottom: 2rem; font-family: "Helvetica Neue", Arial, sans-serif; }
-        .main-container { max-width: 800px; margin: 0 auto; background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.12); }
-        .footer-info { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid #eee; font-size: 0.85rem; color: #6c757d; }
-        .footer-section-title { font-weight: bold; margin-bottom: 0.5rem; color: #343a40; display: flex; align-items: center; }
-        .drop-zone { border: 2px dashed #dee2e6; border-radius: 8px; padding: 40px 20px; text-align: center; background: #f8f9fa; transition: all 0.2s; cursor: pointer; position: relative; }
-        .drop-zone.dragover { border-color: #0d6efd; background: #e7f1ff; transform: scale(1.02); }
-        .drop-zone p { pointer-events: none; }
-        .spec-info { background-color: #e9ecef; border-left: 4px solid #6c757d; padding: 10px 15px; font-size: 0.85rem; color: #495057; margin-bottom: 15px; border-radius: 0 4px 4px 0; }
-        .spec-info ul { margin: 0; padding-left: 1.2rem; }
+        body { font-family: "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, sans-serif; }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            vertical-align: middle;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
-<body>
+<body class="bg-gray-50 text-gray-800 p-6">
 
-<div class="main-container">
-    <h3 class="mb-4 text-center fw-bold text-dark">AIテロップチェッカー</h3>
-    
-    <div class="alert alert-primary py-3 mb-4">
-        <div class="d-flex align-items-center mb-1">
-            <span class="fs-4 me-2">🤖</span>
-            <h6 class="alert-heading fw-bold mb-0">機能概要</h6>
-        </div>
-        <p class="mb-0 ms-1 small">
-            複数のテロップ画像（PNG/JPG）を読み込んで1本の動画ファイルに結合します。<br>
-            作成された動画をAI（Gemini）に読み込ませることで、<strong>誤字脱字や固有名詞の誤りを自動で一括チェック</strong>できます。
-        </p>
-    </div>
-    
-    <div class="mb-4">
-        <label class="form-label fw-bold">1. テロップ画像選択 (PNG/JPG)</label>
-        <div class="drop-zone" id="drop-zone">
-            <p class="fs-5 text-muted mb-1">ここに画像をドラッグ＆ドロップ</p>
-            <p class="small text-muted mb-3">またはクリックしてファイルを選択</p>
-            <input type="file" class="form-control visually-hidden" id="telop-uploader" accept="image/*" multiple>
-            <button class="btn btn-outline-primary btn-sm" onclick="document.getElementById('telop-uploader').click()">ファイルを選択</button>
-            <div id="file-count" class="mt-3 fw-bold text-primary"></div>
-        </div>
-        <div class="form-text mt-2 text-end">※ファイル名順（昇順）で結合されます。</div>
-    </div>
+    <div class="max-w-3xl mx-auto bg-white shadow-lg rounded-lg p-8">
+        
+        <h1 class="text-2xl font-bold mb-4 text-center">📺 テロップ校正用PDF作成ツール</h1>
 
-    <div class="spec-info">
-        <strong>⚙️ 出力設定 (連続変換対応版):</strong>
-        <ul class="mt-1">
-            <li>フレームレート：1fps (1枚につき1秒表示)</li>
-            <li>解像度：<strong>1920x1080 固定 (グレー背景 #808080)</strong></li>
-            <li>動作モード：シングルスレッド＋自動リセット機能</li>
-        </ul>
-    </div>
-
-    <button id="telop-convert-btn" class="btn btn-warning w-100 py-3 fw-bold text-dark fs-5 shadow-sm">動画を作成 (MP4)</button>
-    
-    <div id="telop-progress-bar" class="progress mt-3" style="display:none; height: 25px;">
-        <div class="progress-bar progress-bar-striped progress-bar-animated bg-warning text-dark fw-bold" role="progressbar" style="width: 0%">0%</div>
-    </div>
-    
-    <div class="card mt-4 shadow-sm">
-        <div class="card-header bg-light fw-bold">作成結果</div>
-        <div id="telop-result-area" class="card-body text-center p-4">
-            <div class="text-muted py-4">ここに結果が表示されます</div>
-        </div>
-    </div>
-    
-    <div class="footer-info">
-        <div class="row">
-            <div class="col-md-12 mb-3">
-                <div class="footer-section-title text-success">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-shield-lock-fill me-2" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8 0c-.69 0-1.843.265-2.928.56-1.11.3-2.229.655-2.887.87a1.54 1.54 0 0 0-1.044 1.262c-.596 4.477.787 7.795 2.465 9.99a11.777 11.777 0 0 0 2.517 2.453c.386.273.744.482 1.048.625.28.132.581.24.829.24s.548-.108.829-.24a7.159 7.159 0 0 0 1.048-.625 11.775 11.775 0 0 0 2.517-2.453c1.678-2.195 3.061-5.513 2.465-9.99a1.541 1.541 0 0 0-1.044-1.263 62.467 62.467 0 0 0-2.887-.87C9.843.266 8.69 0 8 0zm0 5a1.5 1.5 0 0 1 .5 2.915l.385 1.99a.5.5 0 0 1-.491.595h-.788a.5.5 0 0 1-.49-.595l.384-1.99A1.5 1.5 0 0 1 8 5z"/></svg>
-                    セキュリティとプライバシー
+        <div class="bg-green-50 border-l-4 border-green-500 p-4 mb-6 rounded">
+            <div class="flex">
+                <div class="flex-shrink-0">
+                    <svg class="h-5 w-5 text-green-500" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 12a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+                    </svg>
                 </div>
-                <p class="mb-0">本ツールは、すべての変換処理を<strong>ブラウザ内（ローカル環境）</strong>で完結して行います。</p>
+                <div class="ml-3">
+                    <p class="text-sm text-green-700 font-bold">
+                        【セキュリティについて】<br>
+                        このツールは全ての処理をお使いのPC（ブラウザ）内で行います。<br>
+                        選択した画像データや生成されたPDFが外部サーバーに送信されることは一切ありませんので、機密性の高い素材でも安心してご使用ください。
+                    </p>
+                </div>
             </div>
         </div>
+
+        <div class="mb-6">
+            <label class="block text-gray-700 text-sm font-bold mb-2" for="fileInput">
+                テロップ画像を選択 (PNGのみ)
+            </label>
+            <input type="file" id="fileInput" multiple accept="image/png" 
+                   class="block w-full text-sm text-gray-500
+                          file:mr-4 file:py-2 file:px-4
+                          file:rounded-full file:border-0
+                          file:text-sm file:font-semibold
+                          file:bg-blue-50 file:text-blue-700
+                          hover:file:bg-blue-100 cursor-pointer border rounded p-2">
+            <p class="text-xs text-gray-500 mt-1">※ファイル名順（1, 2, ... 10）に自動で並び替えます。</p>
+        </div>
+
+        <div class="text-center mb-6">
+            <button id="generateBtn" onclick="generatePDF()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded shadow disabled:opacity-50 disabled:cursor-not-allowed transition duration-150">
+                PDFを作成する
+            </button>
+            <div id="status" class="mt-2 text-sm text-gray-600 hidden">
+                <div class="loader mr-2"></div>処理中... (<span id="progressCount">0</span>/<span id="totalCount">0</span>)
+            </div>
+        </div>
+
+        <hr class="my-6 border-gray-200">
+
+        <div id="resultArea" class="hidden text-center bg-gray-100 p-6 rounded-lg">
+            <h2 class="text-lg font-bold mb-4 text-gray-800">🎉 PDF作成完了</h2>
+            
+            <p class="mb-4 text-sm text-gray-600">
+                PDFがダウンロードされました。<br>
+                以下のボタンから校閲用Geminiを開き、PDFを添付してEnterを押してください。
+            </p>
+
+            <a href="https://gemini.google.com/gem/1dN_UBLXFguu4dfD4ZUWab1FV2mc5Jupv?usp=sharing" target="_blank" 
+               class="inline-flex items-center bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-bold py-3 px-6 rounded shadow-lg transform transition hover:-translate-y-1">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                校閲用Gemini (GEM) を開く
+            </a>
+        </div>
+
+        <div class="mt-8 bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded">
+            <div class="flex">
+                <div class="flex-shrink-0">
+                    <svg class="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+                    </svg>
+                </div>
+                <div class="ml-3">
+                    <h3 class="text-sm leading-5 font-bold text-yellow-800">必ずご確認ください</h3>
+                    <ul class="list-disc list-inside text-sm text-yellow-700 mt-1">
+                        <li><strong>音声チェックはできません：</strong> テロップの内容が話している言葉と一致しているかの確認（ONフォロー確認）はできません。</li>
+                        <li><strong>ダブルチェック必須：</strong> AIは誤った指摘や見落としをする可能性があります。最終的な確認は必ず人間が行ってください。</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
     </div>
-</div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
-<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.0/dist/ffmpeg.min.js"></script>
-    
-<!--
-【重要】GitHub Pages 前提（DO NOT CHANGE）
-- SharedArrayBuffer は利用不可
-- ffmpeg は core-st (single-thread) 専用構成
-- バージョン変更・マルチスレッド化・高速化提案は禁止
--->
-<script>
-    const { createFFmpeg, fetchFile } = FFmpeg;
-    let ffmpeg = null;
-    let selectedFiles = [];
+    <script>
+        const { jsPDF } = window.jspdf;
 
-    const dropZone = document.getElementById('drop-zone');
-    const fileInput = document.getElementById('telop-uploader');
-    const fileCount = document.getElementById('file-count');
+        async function generatePDF() {
+            const fileInput = document.getElementById('fileInput');
+            const statusDiv = document.getElementById('status');
+            const progressCount = document.getElementById('progressCount');
+            const totalCount = document.getElementById('totalCount');
+            const generateBtn = document.getElementById('generateBtn');
+            const resultArea = document.getElementById('resultArea');
 
-    const updateFileList = (files) => {
-        if (!files || files.length === 0) return;
-        const newFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
-        selectedFiles = newFiles; 
-        fileCount.innerText = `✅ ${selectedFiles.length}個のファイルを選択中`;
-    };
+            const files = Array.from(fileInput.files);
 
-    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
-    dropZone.addEventListener('dragleave', () => { dropZone.classList.remove('dragover'); });
-    dropZone.addEventListener('drop', (e) => { e.preventDefault(); dropZone.classList.remove('dragover'); updateFileList(e.dataTransfer.files); });
-    fileInput.addEventListener('change', (e) => { updateFileList(e.target.files); });
-
-    const updateProgress = (percent, text) => {
-        const barContainer = document.getElementById('telop-progress-bar');
-        const bar = barContainer.firstElementChild;
-        barContainer.style.display = 'flex';
-        bar.style.width = `${percent}%`;
-        if(text) bar.innerText = text;
-    };
-
-    // エンジンを起動する関数
-    const ensureFFmpegLoaded = async () => {
-        // nullなら新しく作る
-        if (ffmpeg === null) {
-            ffmpeg = createFFmpeg({ 
-                log: true,
-                corePath: `https://unpkg.com/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js?v=${Date.now()}`,
-                mainName: 'main' 
-            });
-            await ffmpeg.load();
-        } else if (!ffmpeg.isLoaded()) {
-            await ffmpeg.load();
-        }
-    };
-
-    document.getElementById('telop-convert-btn').addEventListener('click', async () => {
-        const resultArea = document.getElementById('telop-result-area');
-        const btn = document.getElementById('telop-convert-btn');
-
-        if (selectedFiles.length === 0) { alert("画像をドラッグ＆ドロップするか、選択してください"); return; }
-        
-        btn.disabled = true; btn.innerText = "生成中..."; 
-        resultArea.innerHTML = '<div class="spinner-border text-warning" role="status"></div><div class="mt-2">エンジン起動中...</div>';
-        updateProgress(0, '準備中...');
-        
-        try {
-            updateProgress(5, 'エンジン準備中...');
-            await new Promise(r => setTimeout(r, 100));
-            
-            await ensureFFmpegLoaded();
-            
-            const files = selectedFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
-            const CANVAS_W = 1920; const CANVAS_H = 1080;
-
-            // ファイルシステムのクリーンアップは新規インスタンスなので不要だが念のため
-            try { ffmpeg.FS('unlink', 'output_check.mp4'); } catch(e){}
-
-            for (let i = 0; i < files.length; i++) {
-                const p = 10 + Math.round((i / files.length) * 40);
-                updateProgress(p, `画像加工中 ${i+1}/${files.length}`);
-                
-                let imgBitmap;
-                try { imgBitmap = await createImageBitmap(files[i]); } catch(e) { throw new Error(`画像の読み込みに失敗しました: ${files[i].name}`); }
-
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
-                canvas.width = CANVAS_W; canvas.height = CANVAS_H;
-                
-                // グレー背景
-                ctx.fillStyle = '#808080'; ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-
-                const scale = Math.min(CANVAS_W / imgBitmap.width, CANVAS_H / imgBitmap.height);
-                const drawW = imgBitmap.width * scale; const drawH = imgBitmap.height * scale;
-                const offsetX = (CANVAS_W - drawW) / 2; const offsetY = (CANVAS_H - drawH) / 2;
-
-                ctx.drawImage(imgBitmap, offsetX, offsetY, drawW, drawH);
-                imgBitmap.close(); 
-
-                const fontSize = 40;
-                ctx.font = `bold ${fontSize}px Arial, sans-serif`; ctx.textBaseline = 'top';
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.5)'; ctx.fillRect(0, 0, CANVAS_W, 60);
-                ctx.fillStyle = '#ffffff'; ctx.fillText(`File: ${files[i].name}`, 20, 10);
-                
-                const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 1.0));
-                ffmpeg.FS('writeFile', `img${String(i).padStart(3, '0')}.jpg`, await fetchFile(blob));
+            if (files.length === 0) {
+                alert("画像ファイルを選択してください。");
+                return;
             }
 
-            updateProgress(50, 'エンコード中...');
-            
+            // UI更新
+            generateBtn.disabled = true;
+            resultArea.classList.add('hidden');
+            statusDiv.classList.remove('hidden');
+            totalCount.innerText = files.length;
+            progressCount.innerText = 0;
+
             try {
-                await ffmpeg.run('-start_number', '0', '-framerate', '1', '-i', 'img%03d.jpg', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '28', 'output_check.mp4');
-            } catch (ffmpegError) {
-                if (ffmpegError && ffmpegError.message && ffmpegError.message.includes('exit(0)')) {
-                    console.log('FFmpeg exited with 0 (Clean exit). Continuing as success.');
+                // ファイル名順（自然順）にソート (1, 2, ... 10)
+                const collator = new Intl.Collator(undefined, {numeric: true, sensitivity: 'base'});
+                files.sort((a, b) => collator.compare(a.name, b.name));
+
+                // PDFドキュメント作成
+                const pdf = new jsPDF({
+                    orientation: 'landscape',
+                    unit: 'px',
+                    compress: true
+                });
+                
+                // 最初のページを削除（後で追加するため）
+                pdf.deletePage(1);
+
+                for (let i = 0; i < files.length; i++) {
+                    const file = files[i];
+                    progressCount.innerText = i + 1;
+
+                    // 画像を読み込む
+                    const imgData = await readFileAsDataURL(file);
+                    const img = await loadImage(imgData);
+
+                    // Canvasで画像を合成
+                    const mergedImage = drawToCanvas(img, file.name);
+
+                    // PDFに追加
+                    const pdfWidth = pdf.internal.pageSize.getWidth();
+                    const pdfHeight = pdf.internal.pageSize.getHeight();
+                    
+                    // ページサイズを画像サイズに合わせる
+                    pdf.addPage([mergedImage.width, mergedImage.height], mergedImage.width > mergedImage.height ? 'landscape' : 'portrait');
+                    
+                    // 画像をPDFページ全面に配置
+                    pdf.addImage(mergedImage.data, 'JPEG', 0, 0, mergedImage.width, mergedImage.height);
+                }
+
+                // 保存
+                const timestamp = new Date().toISOString().slice(0,19).replace(/[-T:]/g,"");
+                pdf.save(`terop_check_${timestamp}.pdf`);
+
+                // 完了表示
+                resultArea.classList.remove('hidden');
+
+            } catch (err) {
+                console.error(err);
+                alert("エラーが発生しました: " + err.message);
+            } finally {
+                generateBtn.disabled = false;
+                statusDiv.classList.add('hidden');
+            }
+        }
+
+        // Canvas描画処理
+        function drawToCanvas(img, fileName) {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+
+            // --- 設定値 ---
+            const baseWidth = img.width; // 画像の幅に合わせる
+            const fontSize = Math.max(24, Math.floor(baseWidth / 40)); // 幅に応じてフォントサイズ調整
+            const padding = fontSize; // 余白
+            const lineHeight = fontSize * 1.5;
+            
+            // --- テキストの折り返し計算 ---
+            ctx.font = `bold ${fontSize}px sans-serif`;
+            const maxWidth = baseWidth - (padding * 2);
+            const lines = wrapText(ctx, fileName, maxWidth);
+            
+            // ヘッダーの高さを計算
+            const headerHeight = (lines.length * lineHeight) + (padding * 2);
+            const totalHeight = headerHeight + img.height;
+
+            // Canvasサイズ決定
+            canvas.width = baseWidth;
+            canvas.height = totalHeight;
+
+            // 1. ヘッダー描画（黒背景）
+            ctx.fillStyle = "#000000";
+            ctx.fillRect(0, 0, baseWidth, headerHeight);
+
+            // 2. ファイル名描画（白文字）
+            ctx.fillStyle = "#FFFFFF";
+            ctx.font = `bold ${fontSize}px sans-serif`;
+            ctx.textBaseline = "top";
+            
+            let currentY = padding;
+            lines.forEach(line => {
+                ctx.fillText(line, padding, currentY);
+                currentY += lineHeight;
+            });
+
+            // 3. テロップエリア描画（薄いグレー背景）
+            ctx.fillStyle = "#D3D3D3"; // LightGray
+            ctx.fillRect(0, headerHeight, baseWidth, img.height);
+
+            // 4. テロップ画像描画
+            ctx.drawImage(img, 0, headerHeight);
+
+            return {
+                // 修正箇所: AI認識精度向上のため品質を0.85から0.95へ変更
+                data: canvas.toDataURL('image/jpeg', 0.95), 
+                width: canvas.width,
+                height: canvas.height
+            };
+        }
+
+        // テキスト折り返し計算用関数
+        function wrapText(ctx, text, maxWidth) {
+            const words = text.split(''); // 文字単位で分割（日本語対応）
+            let lines = [];
+            let currentLine = words[0];
+
+            for (let i = 1; i < words.length; i++) {
+                let word = words[i];
+                let width = ctx.measureText(currentLine + word).width;
+                if (width < maxWidth) {
+                    currentLine += word;
                 } else {
-                    throw ffmpegError;
+                    lines.push(currentLine);
+                    currentLine = word;
                 }
             }
-
-            updateProgress(100, '完了');
-            
-            let data;
-            try {
-                data = ffmpeg.FS('readFile', 'output_check.mp4');
-            } catch(e) {
-                throw new Error("動画ファイルの生成に失敗しました。");
-            }
-
-            const blob = new Blob([data.buffer], { type: 'video/mp4' }); 
-            const url = URL.createObjectURL(blob);
-            
-            resultArea.innerHTML = `
-                <div class="alert alert-success fw-bold">✨ チェック用動画完成 (1秒/枚)</div>
-                <video src="${url}" controls class="w-100 mb-3" style="max-height: 300px; background:#000;"></video>
-                <div class="mb-4"><a href="${url}" download="telop_check_ai.mp4" class="btn btn-success fw-bold px-5">⬇ 動画を保存</a></div>
-                <div class="card border-info text-start"><div class="card-header bg-info text-white fw-bold">🚀 次のステップ: AIで校正チェック</div><div class="card-body bg-light"><p class="small text-muted mb-2">保存した動画をGeminiにアップロードして、誤字脱字や固有名詞のチェックを行いましょう。</p><a href="https://gemini.google.com/gem/1dN_UBLXFguu4dfD4ZUWab1FV2mc5Jupv?usp=sharing" target="_blank" class="btn btn-outline-primary w-100 fw-bold mb-3">🤖 校閲Geminiを開く</a></div></div>
-            `;
-            
-        } catch(e) { 
-            console.error(e); 
-            resultArea.innerHTML = `<div class="alert alert-danger">エラーが発生しました:<br>${e.message}</div>`;
-        } finally {
-            // ★超重要：連続実行エラー回避のためのリセット処理
-            // 処理が成功しても失敗しても、使い終わったエンジンは必ず廃棄する
-            if (ffmpeg) {
-                try {
-                    ffmpeg.exit(); // Workerを終了させる
-                } catch(e) { console.log('Cleanup warning:', e); }
-                ffmpeg = null; // 変数を空にして、次は新しいエンジンを作るようにする
-            }
-            btn.disabled = false; btn.innerText = "動画を作成 (MP4)";
+            lines.push(currentLine);
+            return lines;
         }
-    });
-</script>
+
+        // ファイル読み込みヘルパー
+        function readFileAsDataURL(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+
+        // 画像読み込みヘルパー
+        function loadImage(src) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => resolve(img);
+                img.onerror = reject;
+                img.src = src;
+            });
+        }
+    </script>
 </body>
 </html>
-
