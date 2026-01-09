@@ -31,7 +31,6 @@
             border-radius: 50%;
             font-weight: bold;
             margin-right: 12px;
-            /* 修正: 楕円になるのを防ぐため、縮小しない設定を追加 */
             flex-shrink: 0;
         }
         .step-header {
@@ -112,6 +111,25 @@
             </div>
 
             <div class="relative z-10">
+                
+                <div id="splitWarning" class="hidden bg-orange-50 border-l-4 border-orange-500 p-4 mb-6 rounded">
+                    <div class="flex">
+                        <div class="flex-shrink-0">
+                            <svg class="h-5 w-5 text-orange-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+                            </svg>
+                        </div>
+                        <div class="ml-3">
+                            <p class="text-sm text-orange-700 font-bold">
+                                枚数が200枚を超えているため、PDFを分割してダウンロードしました。
+                            </p>
+                            <p class="text-xs text-orange-600 mt-1">
+                                AIの認識限界（約200ページ）のためです。Geminiには<span class="underline font-bold">分割されたPDFをすべて同時に添付</span>してください。
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
                 <p class="mb-4 text-sm text-gray-600">
                     下のボタンから校閲Gemを開き、<span class="font-bold text-indigo-700">ダウンロードしたPDFを添付し、何も入力せずEnterを押してください。</span>
                 </p>
@@ -162,6 +180,7 @@
             const totalCount = document.getElementById('totalCount');
             const generateBtn = document.getElementById('generateBtn');
             const step2Area = document.getElementById('step2Area');
+            const splitWarning = document.getElementById('splitWarning');
 
             const files = Array.from(fileInput.files);
 
@@ -170,55 +189,84 @@
                 return;
             }
 
-            // UI更新
+            // UI初期化
             generateBtn.disabled = true;
             generateBtn.innerText = "作成中...";
-            step2Area.classList.add('hidden'); // 再実行時は隠す
+            step2Area.classList.add('hidden'); 
+            splitWarning.classList.add('hidden'); // 警告をリセット
             statusDiv.classList.remove('hidden');
             totalCount.innerText = files.length;
             progressCount.innerText = 0;
 
             try {
-                // ファイル名順（自然順）にソート (1, 2, ... 10)
+                // ファイル名順（自然順）にソート
                 const collator = new Intl.Collator(undefined, {numeric: true, sensitivity: 'base'});
                 files.sort((a, b) => collator.compare(a.name, b.name));
 
-                // PDFドキュメント作成
-                const pdf = new jsPDF({
-                    orientation: 'landscape',
-                    unit: 'px',
-                    compress: true
-                });
-                
-                // iOS Safari対策: 
-                // 最初にページを削除せず、追加してから最後に1ページ目を削除する方式
+                const MAX_PAGES = 200; // 1ファイルあたりの最大ページ数
+                const totalFiles = files.length;
+                const totalParts = Math.ceil(totalFiles / MAX_PAGES); // 分割数
 
-                for (let i = 0; i < files.length; i++) {
-                    const file = files[i];
-                    progressCount.innerText = i + 1;
+                // 分割ループ（例: 500枚なら3回ループ）
+                for (let part = 0; part < totalParts; part++) {
+                    
+                    const pdf = new jsPDF({
+                        orientation: 'landscape',
+                        unit: 'px',
+                        compress: true
+                    });
 
-                    // 画像処理
-                    const imgData = await readFileAsDataURL(file);
-                    const img = await loadImage(imgData);
-                    const mergedImage = drawToCanvas(img, file.name);
+                    const startIndex = part * MAX_PAGES;
+                    const endIndex = Math.min(startIndex + MAX_PAGES, totalFiles);
 
-                    // ページ追加
-                    const orientation = mergedImage.width > mergedImage.height ? 'landscape' : 'portrait';
-                    pdf.addPage([mergedImage.width, mergedImage.height], orientation);
-                    pdf.addImage(mergedImage.data, 'JPEG', 0, 0, mergedImage.width, mergedImage.height);
+                    // バッチ内のファイル処理
+                    for (let i = startIndex; i < endIndex; i++) {
+                        const file = files[i];
+                        
+                        // 進捗表示 (全体に対するインデックスを表示)
+                        progressCount.innerText = i + 1;
+
+                        // 画像処理
+                        const imgData = await readFileAsDataURL(file);
+                        const img = await loadImage(imgData);
+                        const mergedImage = drawToCanvas(img, file.name);
+
+                        // ページ追加
+                        const orientation = mergedImage.width > mergedImage.height ? 'landscape' : 'portrait';
+                        pdf.addPage([mergedImage.width, mergedImage.height], orientation);
+                        pdf.addImage(mergedImage.data, 'JPEG', 0, 0, mergedImage.width, mergedImage.height);
+                    }
+
+                    // 最初の空白ページを削除
+                    if (pdf.getNumberOfPages() > 1) {
+                        pdf.deletePage(1);
+                    }
+
+                    // ファイル名生成と保存
+                    const timestamp = new Date().toISOString().slice(0,19).replace(/[-T:]/g,"");
+                    let fileName = `AI_Check_Data_${timestamp}`;
+                    
+                    // 分割が必要な場合のみサフィックスをつける
+                    if (totalParts > 1) {
+                        fileName += `_Part${part + 1}`;
+                    }
+                    fileName += ".pdf";
+
+                    pdf.save(fileName);
+                    
+                    // 連続ダウンロードのための微小なウェイト（ブラウザ対策）
+                    if (totalParts > 1) {
+                        await new Promise(r => setTimeout(r, 500));
+                    }
                 }
-
-                // 最初の空白ページを削除
-                if (pdf.getNumberOfPages() > 1) {
-                    pdf.deletePage(1);
-                }
-
-                // 保存
-                const timestamp = new Date().toISOString().slice(0,19).replace(/[-T:]/g,"");
-                pdf.save(`AI_Check_Data_${timestamp}.pdf`);
 
                 // STEP 2を表示
                 step2Area.classList.remove('hidden');
+                
+                // 200枚を超えて分割された場合、警告を表示
+                if (totalFiles > MAX_PAGES) {
+                    splitWarning.classList.remove('hidden');
+                }
                 
                 // スムーズにスクロール
                 step2Area.scrollIntoView({ behavior: 'smooth', block: 'center' });
