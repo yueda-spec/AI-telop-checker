@@ -134,12 +134,26 @@
                     下のボタンから校閲Gemを開き、<span class="font-bold text-indigo-700">ダウンロードしたPDFを添付し、何も入力せずEnterを押してください。</span>
                 </p>
 
-                <div class="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 text-center">
-                    <p class="text-red-600 font-bold text-lg mb-1">⚠️ 重要：モデル選択について</p>
-                    <p class="text-sm text-red-800 leading-relaxed">
-                        Geminiは必ず <span class="bg-red-200 px-1 rounded font-bold">Pro</span> モードを選択して下さい。<br>
-                        <span class="text-xs opacity-80">※デフォルトの「Flash（高速）」モードでは、文字を正しく認識できません。</span>
-                    </p>
+                <div class="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+                    <p class="text-red-600 font-bold text-lg mb-3 text-center">⚠️ 重要：設定と使い方について</p>
+                    
+                    <div class="space-y-3">
+                        <div class="bg-red-100/50 rounded p-3">
+                            <p class="text-red-800 font-bold text-sm mb-1">① モデルの選択について</p>
+                            <p class="text-sm text-red-800 leading-relaxed">
+                                Geminiは必ず <span class="bg-red-200 px-1 rounded font-bold border border-red-300">Pro</span> モードを選択して下さい。<br>
+                                <span class="text-xs opacity-80">※デフォルトの「Flash（高速）」モードでは、文字を正しく認識できません。</span>
+                            </p>
+                        </div>
+                        
+                        <div class="bg-red-100/50 rounded p-3">
+                            <p class="text-red-800 font-bold text-sm mb-1">② 50枚以上のテロップチェックについて</p>
+                            <p class="text-sm text-red-800 leading-relaxed">
+                                精度維持のため、AIは50枚ごとにチェックを一時停止する仕様になっています。<br>
+                                出力が止まったら、チャット欄に <span class="font-bold border-b-2 border-red-400">「続き」</span> と入力して再開させてください。
+                            </p>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="text-center mb-6">
